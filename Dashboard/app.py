@@ -349,20 +349,19 @@ def parse_num(txt):
 
 with t_entry:
     try:
-        _has_secrets = "github_token" in st.secrets and "entry_password" in st.secrets
+        _has_secrets = "github_token" in st.secrets
     except Exception:                       # no secrets file at all (local run)
         _has_secrets = False
     if not _has_secrets:
-        st.info("Entry is off: add github_token and entry_password in Streamlit Secrets.")
+        st.info("Entry is off: add github_token in Streamlit Secrets.")
     else:
         st.markdown("<div class='card-desc'>Cumulative month-to-date from Cecafe. Leave blank if not shown.</div>",
                     unsafe_allow_html=True)
         with st.form("entry", clear_on_submit=False):
-            ec = st.columns([1.2, 1, 1, 1])
+            ec = st.columns([1.2, 1, 1])
             e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY")
             e_ara = ec[1].text_input("Arabica", placeholder="e.g. 151,804")
             e_rob = ec[2].text_input("Robusta", placeholder="e.g. 77,905")
-            e_pwd = ec[3].text_input("Password", type="password")
             ok = st.form_submit_button("Save", type="primary")
         if ok:
             try:
@@ -370,8 +369,6 @@ with t_entry:
             except ValueError:
                 va = vr = "bad"
             errors = []
-            if e_pwd != st.secrets["entry_password"]:
-                errors.append("Wrong password.")
             if va == "bad":
                 errors.append("Numbers only (commas are fine).")
             elif va is None and vr is None:

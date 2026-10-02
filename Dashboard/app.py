@@ -221,18 +221,6 @@ with st.sidebar:
                 if sel_y - 1 > first_year else first_year)
     connect = st.toggle("Connect gaps", value=False, help="Draw lines across days Cecafe did not publish.")
 
-    st.divider()
-    ly, lm = last_date.year, last_date.month
-    stats = [("Cecafe as of", f"{last_date:%b %d, %Y}", f"{(datetime.today() - last_date).days}d old")]
-    for c in ALL:
-        m = month_series(df[c], ly, lm)
-        if m.empty:
-            continue
-        pr = project(m, ly, lm)
-        chg = m.iloc[-1] - (m.iloc[-2] if len(m) > 1 else 0)
-        stats.append((f"{c} MTD", fmt(m.iloc[-1]), f"{chg:+,.0f} last"))
-        stats.append((f"{c} month-end", fmt(pr[2]) if pr[0] > 10 else "too early", "linear"))
-    sidebar_stats(stats)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -279,33 +267,111 @@ def render_table():
     st.write("")
 
 
-def season_table_html(comm):
+def season_grid(comm):
     """Same month across years, cumulative by day (blank = Cecafe skipped), plus Adj daily for the selected year."""
     s = df[comm]
-    years = [y for y in range(min_year, sel_y + 1) if not month_series(s, y, sel_m).empty]
-    if not years:
-        return ""
+    years = sorted({y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty} | {sel_y})
     dim = month_dim(sel_y, sel_m)
-    ser = {y: month_series(s, y, sel_m) for y in years}
-    ad = adjusted_daily(ser[sel_y]) if sel_y in ser else pd.Series(dtype=float)
-    head = "".join(f"<th>{y}</th>" for y in years) + "<th class='g3'>Adj daily</th>"
-    body = ""
-    for d_ in range(1, dim + 1):
-        body += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
-        for y in years:
-            v = ser[y].get(d_)
-            body += f"<td class='{'b' if y == sel_y else ''}'>{'' if v is None else fmt(v)}</td>"
-        body += f"<td>{'' if d_ not in ad.index else fmt(ad[d_])}</td></tr>"
-    return (f"<div class='chart-head'>{comm} seasonality</div>"
-            "<table class='dtab'><tr class='sub'><th>Date</th>" + head + "</tr>" + body + "</table>")
+    days = [f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)]
+    g = pd.DataFrame(index=days)
+    for y in years:
+        m = month_series(s, y, sel_m)
+        g[str(y)] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
+    ad = adjusted_daily(month_series(s, sel_y, sel_m))
+    g["Adj daily"] = [fmt(ad[d]) if d in ad.index else "" for d in range(1, dim + 1)]
+    return g                                                    # text cells: blanks stay blank, commas allowed
+
+
+def grid_changes(comm, before: pd.DataFrame, after: pd.DataFrame):
+    """{date: value} for every cell the user changed in the year columns. Raises ValueError on non-numbers."""
+    out = {}
+    for col in [c for c in before.columns if c.isdigit()]:
+        for i, (a, b) in enumerate(zip(before[col], after[col])):
+            a, b = parse_num(a or ""), parse_num(b or "")
+            if a == b:
+                continue
+            try:
+                d0 = pd.Timestamp(int(col), sel_m, i + 1)
+            except ValueError:                                  # e.g. 29-Feb in a non-leap year
+                continue
+            out[d0] = b
+    return out
+
+
+def save_grid(changes):
+    """changes: {date: {comm: value}} -> one commit per date, other columns of that row kept."""
+    with st.spinner("Saving..."):
+        try:
+            for d0, upd in sorted(changes.items()):
+                old = ({c: (None if pd.isna(v) else float(v)) for c, v in df.loc[d0].items()}
+                       if d0 in df.index else {c: None for c in ALL})
+                vals = {**old, **upd}
+                commit_change(lambda f, d0=d0, vals=vals: apply_entry(f, d0, vals),
+                              f"Entry {d0:%Y-%m-%d} via dashboard | " + vals_text(vals, " | "))
+        except (GitHubError, requests.RequestException) as ex:
+            st.error(f"GitHub save failed: {ex}")
+            return
+    st.session_state.pop("pending_grid", None)
+    for comm in COMMS:
+        st.session_state.pop(f"grid_{comm}_{sel_y}_{sel_m}", None)
+    st.session_state["flash"] = f"Saved {len(changes)} date(s) from the table."
+    st.rerun()
 
 
 def render_season_tables():
+    editable = entry_enabled()
     st.markdown(f"<div class='card-desc' style='margin-top:14px'>{MONTHS[sel_m - 1]} across years, cumulative. "
-                "Blank = Cecafe skipped the day.</div>", unsafe_allow_html=True)
+                "Blank = Cecafe skipped the day." + (" Click a cell to edit, then Save table." if editable else "")
+                + "</div>", unsafe_allow_html=True)
     cs = st.columns(len(COMMS))
+    before, after = {}, {}
     for col_, comm in zip(cs, COMMS):
-        col_.markdown(season_table_html(comm), unsafe_allow_html=True)
+        g = season_grid(comm)
+        cfg = {c: st.column_config.TextColumn(c, alignment="right") for c in g.columns}
+        cfg["Adj daily"] = st.column_config.TextColumn("Adj daily", disabled=True, alignment="right")
+        with col_:
+            st.markdown(f"<div class='chart-head'>{comm} seasonality</div>", unsafe_allow_html=True)
+            after[comm] = st.data_editor(g, column_config=cfg, disabled=not editable, width="stretch",
+                                         row_height=24, height=len(g) * 24 + 40,
+                                         key=f"grid_{comm}_{sel_y}_{sel_m}")
+        before[comm] = g
+    if not editable:
+        return
+
+    changes = {}
+    try:
+        for comm in COMMS:
+            for d0, v in grid_changes(comm, before[comm], after[comm]).items():
+                changes.setdefault(d0, {})[comm] = v
+    except ValueError:
+        st.error("Numbers only in the table (commas are fine).")
+        return
+    bc = st.columns([0.8, 0.8, 5], vertical_alignment="center")
+    save = bc[0].button("Save table", type="primary", disabled=not changes, width="stretch")
+    if bc[1].button("Undo edits", disabled=not changes, width="stretch"):
+        for comm in COMMS:
+            st.session_state.pop(f"grid_{comm}_{sel_y}_{sel_m}", None)
+        st.session_state.pop("pending_grid", None)
+        st.rerun()
+    if changes:
+        bc[2].markdown(f"<div class='card-desc' style='margin:0'>{sum(len(v) for v in changes.values())} "
+                       "unsaved cell(s).</div>", unsafe_allow_html=True)
+    if save:
+        notes = []
+        for d0, upd in sorted(changes.items()):
+            notes += value_notes(d0, upd)
+        if not notes:
+            save_grid(changes)
+            return
+        st.session_state["pending_grid"] = notes
+    if st.session_state.get("pending_grid") and changes:
+        cc = st.columns([3.2, 0.6, 0.6, 1.6], vertical_alignment="center")
+        cc[0].warning(" ".join(st.session_state["pending_grid"]) + " Save anyway?")
+        if cc[1].button("Override", type="primary", width="stretch", key="grid_override"):
+            save_grid(changes)
+        if cc[2].button("Cancel", width="stretch", key="grid_cancel"):
+            st.session_state.pop("pending_grid", None)
+            st.rerun()
 
 
 def render_visuals():
@@ -534,7 +600,9 @@ def apply_entry(frame, d0, vals):
     frame["date"] = pd.to_datetime(frame["date"])
     existed = (frame.date == d0).any()
     frame = frame[frame.date != d0]
-    frame = pd.concat([frame, pd.DataFrame([{"date": d0, **vals}])]).sort_values("date")
+    if any(v is not None for v in vals.values()):
+        frame = pd.concat([frame, pd.DataFrame([{"date": d0, **vals}])])
+    frame = frame.sort_values("date")
     frame = frame.reindex(columns=["date", *ALL])
     frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
     return frame, existed
@@ -548,6 +616,25 @@ def max_daily(data: pd.DataFrame, comm: str):
         return None
     peaks = [adjusted_daily(month_series(s, y, m)).max() for y, m in {(d.year, d.month) for d in s.index}]
     return float(max(peaks))
+
+
+def value_notes(d0, vals):
+    """Checks that need a second look: cumulative falling, or an implied day far above anything seen (extra zero)."""
+    notes = []
+    same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
+    for name, v in vals.items():
+        if v is None:
+            continue
+        prev_v = same_m[name].dropna()
+        if not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
+            notes.append(f"{name} {d0:%d-%b} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}).")
+        cap = max_daily(df, name)
+        base, base_day = (prev_v.iloc[-1], prev_v.index[-1].day) if not prev_v.empty else (0.0, 0)
+        per_day = (v - base) / max(d0.day - base_day, 1)
+        if cap and per_day > 1.5 * cap:
+            notes.append(f"{name} {d0:%d-%b} {v:,.0f} means ~{per_day:,.0f} bags/day; "
+                         f"highest ever is ~{cap:,.0f}/day. Extra zero?")
+    return notes
 
 
 def vals_text(vals, sep=", "):
@@ -619,20 +706,7 @@ def render_entry():
             changed = [c for c in ALL if old[c] is not None and vals[c] != old[c]]
             if changed:
                 notes.append(f"{d0:%d %b} already saved ({vals_text(old)}).")
-        same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
-        for name, v in vals.items():
-            prev_v = same_m[name].dropna()
-            if v is None:
-                continue
-            if not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
-                notes.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}).")
-            # typo check (extra zero): implied bags/day vs the biggest day ever seen for this type
-            cap = max_daily(df, name)
-            base, base_day = (prev_v.iloc[-1], prev_v.index[-1].day) if not prev_v.empty else (0.0, 0)
-            per_day = (v - base) / max(d0.day - base_day, 1)
-            if cap and per_day > 1.5 * cap:
-                notes.append(f"{name} {v:,.0f} means ~{per_day:,.0f} bags/day; highest ever is ~{cap:,.0f}/day. "
-                             "Extra zero?")
+        notes += value_notes(d0, vals)
         if not notes:
             do_save(d0, vals)
             return

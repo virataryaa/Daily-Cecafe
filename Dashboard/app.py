@@ -70,6 +70,9 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
     background: #ffffff; border: 1px solid #e3e7f0 !important; border-radius: 12px;
     box-shadow: 0 1px 3px rgba(10,36,99,0.06); }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
+.st-key-nav div[role="radiogroup"] label:first-of-type div[data-testid="stMarkdownContainer"] p { color: #1f8a9c !important; font-weight: 700; }
+.st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) { background: #1f8a9c !important; }
+.st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
 .st-key-nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 14px !important; }
 .page-title { color: #0a2463; font-weight: 700; font-size: 1.25rem; margin: 0 0 6px 0; }
 .card-title { color: #0a2463; font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
@@ -988,7 +991,7 @@ st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pi
             unsafe_allow_html=True)
 # one row of pill tabs; a radio so only the open page is computed
 with st.container(key="nav"):
-    page = st.radio("Page", ["Entry", "Seasonality", "History", "Dispatched %", "Projection Accuracy"], horizontal=True,
+    page = st.radio("Page", ["Entry", "Registrations", "Dispatched", "Advanced Study"], horizontal=True,
                     label_visibility="collapsed", key="page")
 if page == "Entry":
     le, ri = st.columns([1, 1.05], gap="medium")
@@ -999,17 +1002,17 @@ if page == "Entry":
     if entry_enabled():
         with st.expander("Save history", expanded=False):
             render_history()
-elif page == "Seasonality":
+elif page == "Registrations":
     oc = st.columns([1.2, 1.8, 5], vertical_alignment="center")
     with oc[0]:
         yrs = st.radio("Years", ["Last 2", "All"], horizontal=True, label_visibility="collapsed", key="years")
     with oc[1]:
         connect = st.toggle("Connect gaps", value=True, help="Draw lines across days Cecafe did not publish.")
-    min_year = max(sel_y - 2, first_year) if yrs == "Last 2" else first_year
+    min_year = max(sel_y - 2, first_year) if yrs == "Last 2" else first_year          # charts: Last 2 / All
     render_visuals()
-elif page == "History":
+    min_year = first_year                                                              # tables: every year
     render_history_tables()
-elif page == "Dispatched %":
+elif page == "Dispatched":
     render_dispatched()
 else:
     render_accuracy()

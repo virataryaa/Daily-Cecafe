@@ -20,7 +20,8 @@ GREY = "#8a94a8"
 OTHER_YEARS = [GREY, AMBER, GREEN, TEAL]               # older years, hidden by default (click legend to show)
 
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_daily.csv"
-COMMS = ["Arabica", "Robusta"]
+COMMS = ["Arabica", "Robusta"]                          # charts + accuracy (have history)
+ALL = ["Arabica", "Robusta", "Soluble"]                 # table + entry (Soluble from Oct 2026)
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 LOOKBACK = 5                                            # years in the seasonal bands
 
@@ -93,7 +94,8 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 # ---------------------------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def load():
-    return pd.read_csv(DATA, parse_dates=["date"]).set_index("date").sort_index()
+    d = pd.read_csv(DATA, parse_dates=["date"]).set_index("date").sort_index()
+    return d.reindex(columns=ALL)
 
 
 def month_dim(year, month):
@@ -222,7 +224,7 @@ with st.sidebar:
     st.divider()
     ly, lm = last_date.year, last_date.month
     stats = [("Cecafe as of", f"{last_date:%b %d, %Y}", f"{(datetime.today() - last_date).days}d old")]
-    for c in COMMS:
+    for c in ALL:
         m = month_series(df[c], ly, lm)
         if m.empty:
             continue
@@ -238,42 +240,44 @@ with st.sidebar:
 # ---------------------------------------------------------------------------------------------
 def render_table():
     dim_sel = month_dim(sel_y, sel_m)
-    cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
-    days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
+    cur = {c: month_series(df[c], sel_y, sel_m) for c in ALL}
+    cols = [c for c in ALL if not cur[c].empty]               # Soluble shows only once it has data
+    days = sorted(set().union(*[cur[c].index for c in cols])) if cols else []
+
+    def total(vals):
+        return None if any(v is None for v in vals) else sum(vals)
 
     rows_html = ""
-    prev = {c: 0.0 for c in COMMS}
+    prev = {c: 0.0 for c in cols}
     for d_ in days:
-        a, r = cur["Arabica"].get(d_), cur["Robusta"].get(d_)
-        chg = {}
-        for c, v in (("Arabica", a), ("Robusta", r)):
+        cum, chg, prj = {}, {}, {}
+        for c in cols:
+            v = cur[c].get(d_)
             if v is not None and pd.notna(v):
-                chg[c], prev[c] = v - prev[c], v
+                cum[c], chg[c], prev[c] = v, v - prev[c], v
+                prj[c] = v / d_ * dim_sel                       # linear month-end projection as of that day
             else:
-                chg[c] = None
-        chg_tot = None if chg["Arabica"] is None or chg["Robusta"] is None else chg["Arabica"] + chg["Robusta"]
-        cum_tot = None if a is None or r is None else a + r
-        pa = None if a is None else a / d_ * dim_sel          # linear month-end projection as of that day
-        pb = None if r is None else r / d_ * dim_sel
-        pt = None if pa is None or pb is None else pa + pb
+                cum[c] = chg[c] = prj[c] = None
         e = d_ <= 10
-        rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
-                      + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
-                      + cell(a) + cell(r) + cell(cum_tot, True)
-                      + cell(pa, early=e) + cell(pb, early=e) + cell(pt, True, early=e) + "</tr>")
+        rows_html += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
+        for grp, early in ((chg, False), (cum, False), (prj, e)):
+            rows_html += "".join(cell(grp[c], early=early) for c in cols) + cell(total(list(grp.values())), True, early=early)
+        rows_html += "</tr>"
 
     st.markdown(f"<div class='card-desc'>Daily registrations, {MON}.</div>", unsafe_allow_html=True)
     if not days:
         st.info(f"No data for {MON} yet.")
     else:
+        n = len(cols) + 1
         st.markdown(
             "<table class='dtab'>"
-            "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th>"
-            "<th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
-            "<tr class='sub'><th>Until</th>" + "<th>Arabica</th><th>Robusta</th><th>Total</th>" * 3 + "</tr>"
+            f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
+            f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th></tr>"
+            "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3 + "</tr>"
             + rows_html + "</table><div class='tab-note'>Grey = day 1-10, too early to project.</div>",
             unsafe_allow_html=True)
     st.write("")
+
 
 def render_visuals():
     def same_month_fig(comm):
@@ -496,14 +500,19 @@ def entry_enabled():
         return False
 
 
-def apply_entry(frame, d0, va, vr):
+def apply_entry(frame, d0, vals):
     frame = frame.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     existed = (frame.date == d0).any()
     frame = frame[frame.date != d0]
-    frame = pd.concat([frame, pd.DataFrame([{"date": d0, "Arabica": va, "Robusta": vr}])]).sort_values("date")
+    frame = pd.concat([frame, pd.DataFrame([{"date": d0, **vals}])]).sort_values("date")
+    frame = frame.reindex(columns=["date", *ALL])
     frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
     return frame, existed
+
+
+def vals_text(vals, sep=", "):
+    return sep.join(f"{c} {fmt(vals.get(c))}" for c in ALL)
 
 
 def commit_change(change, msg):
@@ -524,17 +533,16 @@ def commit_change(change, msg):
     return info
 
 
-def do_save(d0, va, vr):
-    msg = f"Entry {d0:%Y-%m-%d} via dashboard | Arabica {fmt(va)} | Robusta {fmt(vr)}"
+def do_save(d0, vals):
+    msg = f"Entry {d0:%Y-%m-%d} via dashboard | " + vals_text(vals, " | ")
     with st.spinner("Saving..."):
         try:
-            existed = commit_change(lambda f: apply_entry(f, d0, va, vr), msg)
+            existed = commit_change(lambda f: apply_entry(f, d0, vals), msg)
         except (GitHubError, requests.RequestException) as ex:
             st.error(f"GitHub save failed: {ex}")
             return
     st.session_state.pop("pending_save", None)
-    st.session_state["flash"] = (f"{'Overridden' if existed else 'Saved'} {d0:%d %b %Y}: "
-                                 f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
+    st.session_state["flash"] = f"{'Overridden' if existed else 'Saved'} {d0:%d %b %Y}: {vals_text(vals)}."
     st.rerun()
 
 
@@ -547,20 +555,19 @@ def render_entry():
     st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
                 "Blank = not shown.</div>", unsafe_allow_html=True)
     with st.form("entry", clear_on_submit=False, border=False):
-        ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
+        ec = st.columns([1, 1, 1, 1, 0.5, 1.5], vertical_alignment="bottom")
         e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
                                   label_visibility="collapsed")
-        e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
-        e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
-        ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
+        raw = {c: ec[i + 1].text_input(c, placeholder=c, label_visibility="collapsed") for i, c in enumerate(ALL)}
+        ok = ec[4].form_submit_button("Save", type="primary", width="stretch")
 
     if ok:
         try:
-            va, vr = parse_num(e_ara), parse_num(e_rob)
+            vals = {c: parse_num(raw[c]) for c in ALL}
         except ValueError:
             st.error("Numbers only (commas are fine).")
             return
-        if va is None and vr is None:
+        if all(v is None for v in vals.values()):
             st.error("Enter at least one number.")
             return
         d0 = pd.Timestamp(e_date)
@@ -568,25 +575,28 @@ def render_entry():
         # anything that needs a second look: date already saved, or cumulative falling
         notes = []
         if d0 in df.index:
-            old = df.loc[d0]
-            notes.append(f"{d0:%d %b} already saved (Arabica {fmt(old.Arabica)}, Robusta {fmt(old.Robusta)}).")
+            old = {c: (None if pd.isna(v) else float(v)) for c, v in df.loc[d0].items()}
+            vals = {c: old[c] if vals[c] is None else vals[c] for c in ALL}        # blank = keep saved value
+            changed = [c for c in ALL if old[c] is not None and vals[c] != old[c]]
+            if changed:
+                notes.append(f"{d0:%d %b} already saved ({vals_text(old)}).")
         same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
-        for name, v in (("Arabica", va), ("Robusta", vr)):
+        for name, v in vals.items():
             prev_v = same_m[name].dropna()
             if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
                 notes.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}).")
         if not notes:
-            do_save(d0, va, vr)
+            do_save(d0, vals)
             return
-        st.session_state["pending_save"] = (d0, va, vr, notes)
+        st.session_state["pending_save"] = (d0, vals, notes)
 
     pending = st.session_state.get("pending_save")
     if pending:
-        d0, va, vr, notes = pending
+        d0, vals, notes = pending
         cc = st.columns([3.2, 0.6, 0.6, 1.6], vertical_alignment="center")
-        cc[0].warning(" ".join(notes) + f" Override with Arabica {fmt(va)}, Robusta {fmt(vr)}?")
+        cc[0].warning(" ".join(notes) + f" Override with {vals_text(vals)}?")
         if cc[1].button("Override", type="primary", width="stretch"):
-            do_save(d0, va, vr)
+            do_save(d0, vals)
         if cc[2].button("Cancel", width="stretch"):
             st.session_state.pop("pending_save", None)
             st.rerun()
@@ -612,14 +622,14 @@ def render_history():
         else:
             for_date, vals, src = "-", {}, "Local push"
         rows += (f"<tr><td class='ts'>{when:%d %b %H:%M}</td><td class='dt'>{for_date}</td>"
-                 f"<td>{vals.get('Arabica', '-')}</td><td>{vals.get('Robusta', '-')}</td><td class='ts'>{src}</td></tr>")
+                 + "".join(f"<td>{vals.get(c, '-')}</td>" for c in ALL) + f"<td class='ts'>{src}</td></tr>")
         if rows.count("<tr>") >= 10:
             break
     if rows:
         st.markdown("<div class='chart-head' style='margin-top:14px'>Save history</div>"
                     "<div class='card-desc'>Last 10 saves, Amsterdam time (CET).</div>"
-                    "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th><th>Arabica</th><th>Robusta</th>"
-                    "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
+                    "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th>"
+                    + "".join(f"<th>{c}</th>" for c in ALL) + "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------------------------

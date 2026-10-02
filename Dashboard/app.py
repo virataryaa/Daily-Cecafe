@@ -449,12 +449,17 @@ def render_visuals():
                 fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
                                          line=dict(color=NAVY, width=1.5, dash="dot"),
                                          marker=dict(size=7, symbol="diamond")))
-            fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, max(ad.max() * 5, 1)],
-                                          showgrid=False, visible=False))
-        chart_layout(fig, height=420)
+        chart_layout(fig, height=480)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
-        fig.update_layout(yaxis_range=[0, ymax * 1.05])            # zero line = bar baseline
+        # two stacked panels on one day axis: cumulative on top, Adj daily as a mini bar chart below
+        fig.update_layout(
+            yaxis=dict(domain=[0.3, 1], range=[0, ymax * 1.05]),
+            yaxis2=dict(domain=[0, 0.22], anchor="x", tickformat=",", hoverformat=",.0f", nticks=3,
+                        gridcolor="rgba(10,36,99,0.08)", color="#4a5578",
+                        title=dict(text="Adj daily", font=dict(size=10, color="#7a86a8"))),
+            xaxis=dict(anchor="y2"),
+        )
         return fig
 
     def last_months_fig(comm):
@@ -474,7 +479,7 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
                                      mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
-        return chart_layout(fig, height=420)
+        return chart_layout(fig, height=480)
 
     for comm in COMMS:
         c1, c2 = st.columns(2)
@@ -738,7 +743,7 @@ if page == "Entry":
         with st.expander("Save history", expanded=False):
             render_history()
 elif page == "Seasonality":
-    oc = st.columns([1.2, 1, 5], vertical_alignment="center")
+    oc = st.columns([1.2, 1.8, 5], vertical_alignment="center")
     with oc[0]:
         yrs = st.radio("Years", ["Last 2", "All"], horizontal=True, label_visibility="collapsed", key="years")
     with oc[1]:

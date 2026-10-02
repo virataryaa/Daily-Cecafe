@@ -81,6 +81,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
 .dtab td.early { color: #6f7895; background: #f4f5f8; font-weight: 400; font-style: italic; }
 .tab-note { font-size: 11px; color: #7a86a8; margin-top: 4px; }
+.dtab td.ts { font-size: 10.5px; font-style: italic; color: #7a86a8; text-align: left; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -410,15 +411,29 @@ def render_accuracy():
 # ---------------------------------------------------------------------------------------------
 REPO, REPO_PATH = "virataryaa/Daily-Cecafe", "Database/cecafe_daily.csv"
 GH_API = f"https://api.github.com/repos/{REPO}/contents/{REPO_PATH}"
+GH_COMMITS = f"https://api.github.com/repos/{REPO}/commits"
+IST = "Asia/Kolkata"
 
 
 class GitHubError(Exception):
-    pass
+    def __init__(self, msg, status=None):
+        super().__init__(msg)
+        self.status = status
 
 
-def gh_headers():
+@st.cache_resource
+def gh_session():
+    """One keep-alive HTTPS session for all GitHub calls (saves the TLS handshake on every save)."""
+    s = requests.Session()
     tok = str(st.secrets["github_token"]).strip().strip('"').strip("'")
-    return {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+    s.headers.update({"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"})
+    return s
+
+
+@st.cache_resource
+def gh_state():
+    """Last known file content + sha, shared across reruns: a save needs just one PUT, not GET + PUT."""
+    return {}
 
 
 def gh_check(r):
@@ -431,21 +446,42 @@ def gh_check(r):
                 403: "token has no write access - give it Contents: Read and write on Daily-Cecafe",
                 404: "token cannot see the Daily-Cecafe repo - add this repo to the token",
                 409: "file changed meanwhile - press Save again"}.get(r.status_code, "")
-        raise GitHubError(f"GitHub {r.status_code}: {msg}. {hint}")
+        raise GitHubError(f"GitHub {r.status_code}: {msg}. {hint}", r.status_code)
 
 
 def gh_read():
-    r = requests.get(GH_API, headers=gh_headers(), params={"ref": "main"}, timeout=20)
+    r = gh_session().get(GH_API, params={"ref": "main"}, timeout=20)
     gh_check(r)
     j = r.json()
-    return pd.read_csv(io.StringIO(base64.b64decode(j["content"]).decode("utf-8"))), j["sha"]
+    frame = pd.read_csv(io.StringIO(base64.b64decode(j["content"]).decode("utf-8")))
+    gh_state().update(csv=frame, sha=j["sha"])
+    return frame.copy(), j["sha"]
 
 
 def gh_write(frame: pd.DataFrame, sha: str, msg: str):
     body = {"message": msg, "branch": "main", "sha": sha,
             "content": base64.b64encode(frame.to_csv(index=False, lineterminator="\n").encode()).decode()}
-    r = requests.put(GH_API, headers=gh_headers(), json=body, timeout=20)
+    r = gh_session().put(GH_API, json=body, timeout=20)
     gh_check(r)
+    j = r.json()
+    gh_state().update(csv=frame.copy(), sha=j["content"]["sha"])
+    hist = gh_state().setdefault("history", [])
+    hist.insert(0, (j["commit"]["committer"]["date"], msg))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_history():
+    r = gh_session().get(GH_COMMITS, params={"path": REPO_PATH, "per_page": 30}, timeout=20)
+    gh_check(r)
+    return [(c["commit"]["committer"]["date"], c["commit"]["message"].split("\n")[0]) for c in r.json()]
+
+
+def save_history():
+    """Recent saves: fetched once, then new saves are added locally (no extra call per save)."""
+    st_ = gh_state()
+    if "history" not in st_:
+        st_["history"] = _fetch_history()
+    return st_["history"]
 
 
 def parse_num(txt):
@@ -453,69 +489,117 @@ def parse_num(txt):
     return float(txt) if txt else None
 
 
+def entry_enabled():
+    try:
+        return "github_token" in st.secrets
+    except Exception:                       # no secrets file at all (local run)
+        return False
+
+
+def apply_entry(frame, d0, va, vr):
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"])
+    existed = (frame.date == d0).any()
+    frame = frame[frame.date != d0]
+    frame = pd.concat([frame, pd.DataFrame([{"date": d0, "Arabica": va, "Robusta": vr}])]).sort_values("date")
+    frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
+    return frame, existed
+
+
 def render_entry():
     if st.session_state.get("flash"):
         st.success(st.session_state.pop("flash"))
-    try:
-        _has_secrets = "github_token" in st.secrets
-    except Exception:                       # no secrets file at all (local run)
-        _has_secrets = False
-    if not _has_secrets:
+    if not entry_enabled():
         st.info("Entry is off: add github_token in Streamlit Secrets.")
-    else:
-        st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
-                    "Blank = not shown.</div>", unsafe_allow_html=True)
-        with st.form("entry", clear_on_submit=False, border=False):
-            ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
-            e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
-                                      label_visibility="collapsed")
-            e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
-            e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
-            ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
-        if ok:
-            try:
-                va, vr = parse_num(e_ara), parse_num(e_rob)
-            except ValueError:
-                va = vr = "bad"
-            errors = []
-            if va == "bad":
-                errors.append("Numbers only (commas are fine).")
-            elif va is None and vr is None:
-                errors.append("Enter at least one number.")
-            if not errors:
-                try:
-                    cur_csv, sha = gh_read()
-                except (GitHubError, requests.RequestException) as ex:
-                    st.error(str(ex))
-                    st.stop()
-                cur_csv["date"] = pd.to_datetime(cur_csv["date"])
-                d0 = pd.Timestamp(e_date)
-                same_m = cur_csv[(cur_csv.date.dt.year == d0.year) & (cur_csv.date.dt.month == d0.month)
-                                 & (cur_csv.date < d0)]
-                for name, v in (("Arabica", va), ("Robusta", vr)):
-                    prev_v = same_m[name].dropna()
-                    if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
-                        errors.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}). "
-                                      "Cumulative should not fall.")
-            if errors:
-                for e in errors:
-                    st.error(e)
+        return
+    st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
+                "Blank = not shown.</div>", unsafe_allow_html=True)
+    with st.form("entry", clear_on_submit=False, border=False):
+        ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
+        e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
+                                  label_visibility="collapsed")
+        e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
+        e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
+        ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
+    if not ok:
+        return
+    try:
+        va, vr = parse_num(e_ara), parse_num(e_rob)
+    except ValueError:
+        st.error("Numbers only (commas are fine).")
+        return
+    if va is None and vr is None:
+        st.error("Enter at least one number.")
+        return
+    d0 = pd.Timestamp(e_date)
+
+    # sanity check against what we already have (no network call)
+    same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
+    errors = []
+    for name, v in (("Arabica", va), ("Robusta", vr)):
+        prev_v = same_m[name].dropna()
+        if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
+            errors.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}). "
+                          "Cumulative should not fall.")
+    if errors:
+        for e in errors:
+            st.error(e)
+        return
+
+    msg = f"Entry {d0:%Y-%m-%d} via dashboard | Arabica {fmt(va)} | Robusta {fmt(vr)}"
+    with st.spinner("Saving..."):
+        try:
+            state = gh_state()
+            if "sha" in state:
+                frame, sha = state["csv"], state["sha"]
             else:
-                existed = (cur_csv.date == d0).any()
-                cur_csv = cur_csv[cur_csv.date != d0]
-                cur_csv = pd.concat([cur_csv, pd.DataFrame([{"date": d0, "Arabica": va, "Robusta": vr}])])
-                cur_csv = cur_csv.sort_values("date")
-                cur_csv["date"] = cur_csv["date"].dt.strftime("%Y-%m-%d")
-                try:
-                    gh_write(cur_csv, sha, f"Entry {d0:%Y-%m-%d} via dashboard")
-                except (GitHubError, requests.RequestException) as ex:
-                    st.error(f"GitHub save failed: {ex}")
-                else:
-                    cur_csv.to_csv(DATA, index=False, lineterminator="\n")   # show it now, before redeploy
-                    st.cache_data.clear()
-                    st.session_state["flash"] = (f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: "
-                                                 f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
-                    st.rerun()
+                frame, sha = gh_read()
+            new_csv, existed = apply_entry(frame, d0, va, vr)
+            try:
+                gh_write(new_csv, sha, msg)
+            except GitHubError as ex:
+                if ex.status not in (409, 422):                     # someone else changed the file: re-read once
+                    raise
+                frame, sha = gh_read()
+                new_csv, existed = apply_entry(frame, d0, va, vr)
+                gh_write(new_csv, sha, msg)
+        except (GitHubError, requests.RequestException) as ex:
+            st.error(f"GitHub save failed: {ex}")
+            return
+    new_csv.to_csv(DATA, index=False, lineterminator="\n")             # show it now, before Cloud redeploys
+    load.clear()
+    st.session_state["flash"] = f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: Arabica {fmt(va)}, Robusta {fmt(vr)}."
+    st.rerun()
+
+
+def render_history():
+    if not entry_enabled():
+        return
+    try:
+        hist = save_history()
+    except (GitHubError, requests.RequestException):
+        return
+    rows = ""
+    for ts, msg in hist:
+        if not msg.startswith("Entry ") and not msg.startswith("Data update"):
+            continue
+        when = pd.Timestamp(ts).tz_convert(IST)
+        parts = [x.strip() for x in msg.split("|")]
+        if msg.startswith("Entry "):
+            for_date = pd.Timestamp(parts[0].split()[1]).strftime("%d-%b")
+            vals = {k: v for k, v in (x.split(" ", 1) for x in parts[1:])}
+            src = "Dashboard"
+        else:
+            for_date, vals, src = "-", {}, "Local push"
+        rows += (f"<tr><td class='ts'>{when:%d %b %H:%M}</td><td class='dt'>{for_date}</td>"
+                 f"<td>{vals.get('Arabica', '-')}</td><td>{vals.get('Robusta', '-')}</td><td class='ts'>{src}</td></tr>")
+        if rows.count("<tr>") >= 10:
+            break
+    if rows:
+        st.markdown("<div class='chart-head' style='margin-top:14px'>Save history</div>"
+                    "<div class='card-desc'>Last 10 saves, IST.</div>"
+                    "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th><th>Arabica</th><th>Robusta</th>"
+                    "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -527,6 +611,7 @@ with t_main:
     if view == "Tabular":
         render_entry()
         render_table()
+        render_history()
     else:
         sub_charts, sub_acc = st.tabs(["Seasonality", "Projection Accuracy"])
         with sub_charts:

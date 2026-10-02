@@ -326,8 +326,7 @@ def entry_grid(cols):
         m = month_series(df[col], sel_y, sel_m)
         g[label] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
     vals = g.apply(lambda col: col.map(parse_num))
-    g["Total"] = [fmt(r.sum()) if r.notna().any() else "" for _, r in vals.iterrows()]   # read-only
-    return g
+    return g, [fmt(r.sum()) if r.notna().any() else "" for _, r in vals.iterrows()]      # totals: read-only
 
 
 def grid_changes(before: pd.DataFrame, after: pd.DataFrame, cols, out=None):
@@ -342,7 +341,8 @@ def grid_changes(before: pd.DataFrame, after: pd.DataFrame, cols, out=None):
 
 
 GRID_KEY = "entry_grid"
-GRIDS = {"Registered": {c: c for c in ALL}, "Dispatched": {c: DISP[c] for c in ALL}}
+GRIDS = {"Registered": {c: c for c in ALL}, "Dispatched": {f"Disp {c}": DISP[c] for c in ALL}}
+TOTALS = {"Registered": "Total", "Dispatched": "Disp Total"}
 
 
 def save_grid(changes):
@@ -359,8 +359,7 @@ def save_grid(changes):
             st.error(f"GitHub save failed: {ex}")
             return
     st.session_state.pop("pending_grid", None)
-    for kind in GRIDS:
-        st.session_state.pop(f"{GRID_KEY}_{kind}_{sel_y}_{sel_m}", None)
+    st.session_state.pop(f"{GRID_KEY}_{sel_y}_{sel_m}", None)
     st.session_state["flash"] = f"Saved {len(changes)} date(s)."
     st.rerun()
 
@@ -370,22 +369,27 @@ def render_entry_grid():
         st.toast(st.session_state.pop("flash"))
     editable = entry_enabled()
     st.markdown(f"<div class='card-title'>Entry <span class='pill'>{MON}</span></div>"
-                "<div class='card-desc'>Cumulative MTD from Cecafe, bags: registered and dispatched. "
+                "<div class='card-desc'>Cumulative MTD from Cecafe, bags. Disp = dispatched. "
                 + ("Click a cell, type, Save." if editable else "Read-only: add github_token in Secrets.")
                 + "</div>", unsafe_allow_html=True)
-    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=88) for c in ALL}
-    cfg["_index"] = st.column_config.TextColumn("Date", width=60)
-    cfg["Total"] = st.column_config.TextColumn("Total", alignment="right", width=92, disabled=True)
-    changes, keys = {}, []
+    # one grid, one Date column: registered block, then dispatched block, each with a read-only total
+    parts = []
+    for kind, cols in GRIDS.items():
+        part, tot = entry_grid(cols)
+        part[TOTALS[kind]] = tot
+        parts.append(part)
+    g = pd.concat(parts, axis=1)
+    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=80 if c in ALL else 108) for c in g.columns}
+    for c in TOTALS.values():
+        cfg[c] = st.column_config.TextColumn(c, alignment="right", width=88, disabled=True)
+    cfg["_index"] = st.column_config.TextColumn("Date", width=58)
+    key = f"{GRID_KEY}_{sel_y}_{sel_m}"
+    keys = [key]
+    changes = {}
+    after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
+                           row_height=26, height=len(g) * 26 + 52, key=key)
     try:
-        for col_, (kind, cols) in zip(st.columns(len(GRIDS), gap="medium"), GRIDS.items()):
-            g = entry_grid(cols)
-            key = f"{GRID_KEY}_{kind}_{sel_y}_{sel_m}"
-            keys.append(key)
-            with col_:
-                st.markdown(f"<div class='grid-head'>{kind}</div>", unsafe_allow_html=True)
-                after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
-                                       row_height=26, height=len(g) * 26 + 52, key=key)
+        for cols in GRIDS.values():
             grid_changes(g, after, cols, changes)
     except ValueError:
         st.error("Numbers only (commas are fine).")
@@ -805,10 +809,11 @@ with st.container(key="nav"):
     page = st.radio("Page", ["Entry", "Seasonality", "History", "Projection Accuracy"], horizontal=True,
                     label_visibility="collapsed", key="page")
 if page == "Entry":
-    with st.container(border=True):
-        render_table()
-    with st.container(border=True):
+    le, ri = st.columns([1, 1.05], gap="medium")
+    with le, st.container(border=True):
         render_entry_grid()
+    with ri, st.container(border=True):
+        render_table()
     if entry_enabled():
         with st.expander("Save history", expanded=False):
             render_history()

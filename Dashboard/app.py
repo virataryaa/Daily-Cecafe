@@ -35,7 +35,7 @@ st.markdown(
 h1, h2, h3, h4, h5, h6 { color: #0a2463 !important; }
 body, .main { color: #1a1a2e; }
 [data-testid="stSidebar"] { color: #1a1a2e; }
-.block-container { padding-top: 3.2rem; }
+.block-container { padding-top: 2.2rem; }
 
 /* Pill / segmented-control tabs */
 .stTabs [data-baseweb="tab-list"] { background: #eef0f6; padding: 4px; border-radius: 999px; gap: 4px; display: inline-flex; }
@@ -197,36 +197,22 @@ def sidebar_stats(rows):
 
 
 # ---------------------------------------------------------------------------------------------
-# month navigator (top) + sidebar
+# sidebar
 # ---------------------------------------------------------------------------------------------
 df = load()
 last_date = df.dropna(how="all").index.max()
 
 ym_all = sorted({(d.year, d.month) for d in df.index})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
-if st.session_state.get("month_sel") not in labels:
-    st.session_state["month_sel"] = labels[-1]
-
-
-def _step(k):
-    i = labels.index(st.session_state["month_sel"]) + k
-    st.session_state["month_sel"] = labels[min(max(i, 0), len(labels) - 1)]
-
-
-_i = labels.index(st.session_state["month_sel"])
-nav = st.columns([0.8, 1.4, 0.8, 7], vertical_alignment="bottom")
-nav[0].button("< Prev", on_click=_step, args=(-1,), disabled=_i == 0, width="stretch")
-nav[1].selectbox("Month", labels[::-1], key="month_sel", label_visibility="collapsed")
-nav[2].button("Next >", on_click=_step, args=(1,), disabled=_i == len(labels) - 1, width="stretch")
-sel = st.session_state["month_sel"]
-sel_y, sel_m = ym_all[labels.index(sel)]
-MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
 
 with st.sidebar:
     st.markdown("<div class='sb-title'>Cecafe Daily</div>", unsafe_allow_html=True)
     st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
                 "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
     st.subheader("Filters")
+    sel = st.selectbox("Month", labels[::-1], index=0)
+    sel_y, sel_m = ym_all[labels.index(sel)]
+    MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
     first_year = int(df.index.year.min())
     min_year = (st.slider("History from", first_year, sel_y - 1, max(sel_y - 5, first_year))
                 if sel_y - 1 > first_year else first_year)

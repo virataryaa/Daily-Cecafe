@@ -698,7 +698,7 @@ def render_history():
     try:
         hist = save_history()
     except (GitHubError, requests.RequestException) as ex:
-        st.markdown(f"<div class='card-title'>Save history</div><div class='card-desc'>Not available: {ex}</div>",
+        st.markdown(f"<div class='card-desc'>Not available: {ex}</div>",
                     unsafe_allow_html=True)
         return
     rows = ""
@@ -718,7 +718,7 @@ def render_history():
         if rows.count("<tr>") >= 10:
             break
     if rows:
-        st.markdown("<div class='card-title'>Save history</div>"
+        st.markdown(""
                     "<div class='card-desc'>Last 10 saves, Amsterdam time (CET).</div>"
                     "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th>"
                     + "".join(f"<th>{c}</th>" for c in ALL) + "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
@@ -737,12 +737,11 @@ if page == "Entry":
     ec, tc = st.columns([1.4, 2.6], gap="medium")
     with ec, st.container(border=True):
         render_entry_grid()
-    with tc:
-        with st.container(border=True):
-            render_table()
-        if entry_enabled():
-            with st.container(border=True):
-                render_history()
+    with tc, st.container(border=True):
+        render_table()
+    if entry_enabled():
+        with st.expander("Save history", expanded=False):
+            render_history()
 elif page == "Seasonality":
     render_visuals()
 elif page == "History":

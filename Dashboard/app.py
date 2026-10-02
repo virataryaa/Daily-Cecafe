@@ -106,8 +106,8 @@ cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
 days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
 
 
-def cell(v, bold=False):
-    return f"<td class='{'b' if bold else ''}'>{fmt(v)}</td>"
+def cell(v, bold=False, early=False):
+    return f"<td class='{'b' if bold else ''}{' early' if early else ''}'>{fmt(v)}</td>"
 
 
 rows_html = ""
@@ -131,7 +131,7 @@ for d_ in days:
     rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
                   + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
                   + cell(a) + cell(r) + cell(cum_tot, True)
-                  + cell(pa) + cell(pb) + cell(pt, True) + "</tr>")
+                  + cell(pa, early=d_ <= 10) + cell(pb, early=d_ <= 10) + cell(pt, True, early=d_ <= 10) + "</tr>")
 
 st.markdown("""
 <style>
@@ -140,6 +140,7 @@ st.markdown("""
 .dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
 .dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
 .dtab .g3 { background: #e8f3ee; color: #0a2463; border: 1px solid #1a1a2e; }
+.dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
 .dtab .sub th { background: #0a2463; color: #fff; }
 .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
 .dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
@@ -149,7 +150,8 @@ st.markdown(
     "<table class='dtab'>"
     "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
     "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
-    + rows_html + "</table>", unsafe_allow_html=True)
+    + rows_html + "</table>"
+    "<div class='side-note' style='margin-top:4px'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
 st.write("")
 
 

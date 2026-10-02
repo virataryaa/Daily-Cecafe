@@ -248,8 +248,9 @@ with st.sidebar:
 def render_table():
     dim_sel = month_dim(sel_y, sel_m)
     cur = {c: month_series(df[c], sel_y, sel_m) for c in ALL}
-    cols = [c for c in ALL if not cur[c].empty]               # Soluble shows only once it has data
-    days = sorted(set().union(*[cur[c].index for c in cols])) if cols else []
+    have = [c for c in ALL if not cur[c].empty]               # types with data this month -> Total
+    cols = ALL                                                # always show all three columns
+    days = sorted(set().union(*[cur[c].index for c in have])) if have else []
 
     def total(vals):
         return None if any(v is None for v in vals) else sum(vals)
@@ -268,7 +269,8 @@ def render_table():
         e = d_ <= 10
         rows_html += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
         for grp, early in ((chg, False), (cum, False), (prj, e)):
-            rows_html += "".join(cell(grp[c], early=early) for c in cols) + cell(total(list(grp.values())), True, early=early)
+            rows_html += ("".join(cell(grp[c], early=early) for c in cols)
+                          + cell(total([grp[c] for c in have]), True, early=early))
         rows_html += "</tr>"
 
     st.markdown(f"<div class='card-title'>Daily change and linear month-end <span class='pill'>{MON}</span></div>"
@@ -804,9 +806,9 @@ with st.container(key="nav"):
                     label_visibility="collapsed", key="page")
 if page == "Entry":
     with st.container(border=True):
-        render_entry_grid()
-    with st.container(border=True):
         render_table()
+    with st.container(border=True):
+        render_entry_grid()
     if entry_enabled():
         with st.expander("Save history", expanded=False):
             render_history()

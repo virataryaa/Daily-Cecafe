@@ -412,7 +412,7 @@ def render_accuracy():
 REPO, REPO_PATH = "virataryaa/Daily-Cecafe", "Database/cecafe_daily.csv"
 GH_API = f"https://api.github.com/repos/{REPO}/contents/{REPO_PATH}"
 GH_COMMITS = f"https://api.github.com/repos/{REPO}/commits"
-IST = "Asia/Kolkata"
+TZ = "Europe/Amsterdam"
 
 
 class GitHubError(Exception):
@@ -524,13 +524,18 @@ def commit_change(change, msg):
     return info
 
 
-def delete_rows(frame, d0):
-    frame = frame.copy()
-    frame["date"] = pd.to_datetime(frame["date"])
-    found = (frame.date == d0).any()
-    frame = frame[frame.date != d0]
-    frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
-    return frame, found
+def do_save(d0, va, vr):
+    msg = f"Entry {d0:%Y-%m-%d} via dashboard | Arabica {fmt(va)} | Robusta {fmt(vr)}"
+    with st.spinner("Saving..."):
+        try:
+            existed = commit_change(lambda f: apply_entry(f, d0, va, vr), msg)
+        except (GitHubError, requests.RequestException) as ex:
+            st.error(f"GitHub save failed: {ex}")
+            return
+    st.session_state.pop("pending_save", None)
+    st.session_state["flash"] = (f"{'Overridden' if existed else 'Saved'} {d0:%d %b %Y}: "
+                                 f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
+    st.rerun()
 
 
 def render_entry():
@@ -542,77 +547,49 @@ def render_entry():
     st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
                 "Blank = not shown.</div>", unsafe_allow_html=True)
     with st.form("entry", clear_on_submit=False, border=False):
-        ec = st.columns([1, 1, 1, 0.5, 0.5, 2], vertical_alignment="bottom")
+        ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
         e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
                                   label_visibility="collapsed")
         e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
         e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
         ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
-        rm = ec[4].form_submit_button("Delete", width="stretch")
 
-    # delete: ask once, then remove the row for that date
-    if rm:
-        d_rm = pd.Timestamp(e_date)
-        if d_rm not in df.index:
-            st.error(f"No entry for {d_rm:%d %b %Y}.")
-        else:
-            st.session_state["pending_delete"] = d_rm
-    d_rm = st.session_state.get("pending_delete")
-    if d_rm is not None:
-        row = df.loc[d_rm] if d_rm in df.index else None
-        cc = st.columns([3, 0.7, 0.7, 2], vertical_alignment="center")
-        cc[0].warning(f"Delete {d_rm:%d %b %Y}"
-                      + (f" (Arabica {fmt(row.Arabica)}, Robusta {fmt(row.Robusta)})?" if row is not None else "?"))
-        yes = cc[1].button("Yes, delete", type="primary", width="stretch")
-        no = cc[2].button("Cancel", width="stretch")
-        if no:
-            st.session_state.pop("pending_delete", None)
-            st.rerun()
-        if yes:
-            with st.spinner("Deleting..."):
-                try:
-                    commit_change(lambda f: delete_rows(f, d_rm), f"Delete {d_rm:%Y-%m-%d} via dashboard")
-                except (GitHubError, requests.RequestException) as ex:
-                    st.error(f"GitHub delete failed: {ex}")
-                    return
-            st.session_state.pop("pending_delete", None)
-            st.session_state["flash"] = f"Deleted {d_rm:%d %b %Y}."
-            st.rerun()
-        return
-    if not ok:
-        return
-    try:
-        va, vr = parse_num(e_ara), parse_num(e_rob)
-    except ValueError:
-        st.error("Numbers only (commas are fine).")
-        return
-    if va is None and vr is None:
-        st.error("Enter at least one number.")
-        return
-    d0 = pd.Timestamp(e_date)
-
-    # sanity check against what we already have (no network call)
-    same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
-    errors = []
-    for name, v in (("Arabica", va), ("Robusta", vr)):
-        prev_v = same_m[name].dropna()
-        if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
-            errors.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}). "
-                          "Cumulative should not fall.")
-    if errors:
-        for e in errors:
-            st.error(e)
-        return
-
-    msg = f"Entry {d0:%Y-%m-%d} via dashboard | Arabica {fmt(va)} | Robusta {fmt(vr)}"
-    with st.spinner("Saving..."):
+    if ok:
         try:
-            existed = commit_change(lambda f: apply_entry(f, d0, va, vr), msg)
-        except (GitHubError, requests.RequestException) as ex:
-            st.error(f"GitHub save failed: {ex}")
+            va, vr = parse_num(e_ara), parse_num(e_rob)
+        except ValueError:
+            st.error("Numbers only (commas are fine).")
             return
-    st.session_state["flash"] = f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: Arabica {fmt(va)}, Robusta {fmt(vr)}."
-    st.rerun()
+        if va is None and vr is None:
+            st.error("Enter at least one number.")
+            return
+        d0 = pd.Timestamp(e_date)
+
+        # anything that needs a second look: date already saved, or cumulative falling
+        notes = []
+        if d0 in df.index:
+            old = df.loc[d0]
+            notes.append(f"{d0:%d %b} already saved (Arabica {fmt(old.Arabica)}, Robusta {fmt(old.Robusta)}).")
+        same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
+        for name, v in (("Arabica", va), ("Robusta", vr)):
+            prev_v = same_m[name].dropna()
+            if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
+                notes.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}).")
+        if not notes:
+            do_save(d0, va, vr)
+            return
+        st.session_state["pending_save"] = (d0, va, vr, notes)
+
+    pending = st.session_state.get("pending_save")
+    if pending:
+        d0, va, vr, notes = pending
+        cc = st.columns([3.2, 0.6, 0.6, 1.6], vertical_alignment="center")
+        cc[0].warning(" ".join(notes) + f" Override with Arabica {fmt(va)}, Robusta {fmt(vr)}?")
+        if cc[1].button("Override", type="primary", width="stretch"):
+            do_save(d0, va, vr)
+        if cc[2].button("Cancel", width="stretch"):
+            st.session_state.pop("pending_save", None)
+            st.rerun()
 
 
 def render_history():
@@ -624,17 +601,14 @@ def render_history():
         return
     rows = ""
     for ts, msg in hist:
-        if not msg.startswith(("Entry ", "Delete ", "Data update")):
+        if not msg.startswith(("Entry ", "Data update")):
             continue
-        when = pd.Timestamp(ts).tz_convert(IST)
+        when = pd.Timestamp(ts).tz_convert(TZ)
         parts = [x.strip() for x in msg.split("|")]
         if msg.startswith("Entry "):
             for_date = pd.Timestamp(parts[0].split()[1]).strftime("%d-%b")
             vals = {k: v for k, v in (x.split(" ", 1) for x in parts[1:])}
             src = "Dashboard"
-        elif msg.startswith("Delete "):
-            for_date = pd.Timestamp(msg.split()[1]).strftime("%d-%b")
-            vals, src = {"Arabica": "deleted", "Robusta": "deleted"}, "Dashboard"
         else:
             for_date, vals, src = "-", {}, "Local push"
         rows += (f"<tr><td class='ts'>{when:%d %b %H:%M}</td><td class='dt'>{for_date}</td>"
@@ -643,7 +617,7 @@ def render_history():
             break
     if rows:
         st.markdown("<div class='chart-head' style='margin-top:14px'>Save history</div>"
-                    "<div class='card-desc'>Last 10 saves, IST.</div>"
+                    "<div class='card-desc'>Last 10 saves, Amsterdam time (CET).</div>"
                     "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th><th>Arabica</th><th>Robusta</th>"
                     "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
 

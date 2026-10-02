@@ -22,6 +22,8 @@ OTHER_YEARS = [GREY, AMBER, GREEN, TEAL]               # older years, hidden by 
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_daily.csv"
 COMMS = ["Arabica", "Robusta"]                          # charts + accuracy (have history)
 ALL = ["Arabica", "Robusta", "Soluble"]                 # table + entry (Soluble from Oct 2026)
+DISP = {c: f"{c} Dispatched" for c in ALL}               # dispatched, cumulative MTD (from Oct 2026)
+COLS = ALL + list(DISP.values())                         # every data column in the CSV
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 LOOKBACK = 5                                            # years in the seasonal bands
 
@@ -105,7 +107,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 @st.cache_data(ttl=600)
 def load():
     d = pd.read_csv(DATA, parse_dates=["date"]).set_index("date").sort_index()
-    return d.reindex(columns=ALL)
+    return d.reindex(columns=COLS)
 
 
 def month_dim(year, month):
@@ -314,28 +316,31 @@ def render_history_tables():
         col_.markdown(f"<div style='overflow-x:auto'>{history_table_html(comm)}</div>", unsafe_allow_html=True)
 
 
-def entry_grid():
-    """Selected month only: one row per day, one column per type (text cells: blank stays blank, commas allowed)."""
+def entry_grid(cols):
+    """Selected month only: one row per day; cols = {grid label: CSV column}. Text cells keep blanks blank."""
     dim = month_dim(sel_y, sel_m)
     g = pd.DataFrame(index=[f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)])
-    for c in ALL:
-        m = month_series(df[c], sel_y, sel_m)
-        g[c] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
+    for label, col in cols.items():
+        m = month_series(df[col], sel_y, sel_m)
+        g[label] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
+    vals = g.apply(lambda col: col.map(parse_num))
+    g["Total"] = [fmt(r.sum()) if r.notna().any() else "" for _, r in vals.iterrows()]   # read-only
     return g
 
 
-def grid_changes(before: pd.DataFrame, after: pd.DataFrame):
-    """{date: {type: value}} for every changed cell. Raises ValueError on non-numbers."""
-    out = {}
-    for c in ALL:
-        for i, (a, b) in enumerate(zip(before[c], after[c])):
+def grid_changes(before: pd.DataFrame, after: pd.DataFrame, cols, out=None):
+    """{date: {CSV column: value}} for every changed cell. Raises ValueError on non-numbers."""
+    out = {} if out is None else out
+    for label, col in cols.items():
+        for i, (a, b) in enumerate(zip(before[label], after[label])):
             a, b = parse_num(a), parse_num(b)
             if a != b:
-                out.setdefault(pd.Timestamp(sel_y, sel_m, i + 1), {})[c] = b
+                out.setdefault(pd.Timestamp(sel_y, sel_m, i + 1), {})[col] = b
     return out
 
 
 GRID_KEY = "entry_grid"
+GRIDS = {"Registered": {c: c for c in ALL}, "Dispatched": {c: DISP[c] for c in ALL}}
 
 
 def save_grid(changes):
@@ -344,7 +349,7 @@ def save_grid(changes):
         try:
             for d0, upd in sorted(changes.items()):
                 old = ({c: (None if pd.isna(v) else float(v)) for c, v in df.loc[d0].items()}
-                       if d0 in df.index else {c: None for c in ALL})
+                       if d0 in df.index else {c: None for c in COLS})
                 vals = {**old, **upd}
                 commit_change(lambda f, d0=d0, vals=vals: apply_entry(f, d0, vals),
                               f"Entry {d0:%Y-%m-%d} via dashboard | " + vals_text(vals, " | "))
@@ -352,7 +357,8 @@ def save_grid(changes):
             st.error(f"GitHub save failed: {ex}")
             return
     st.session_state.pop("pending_grid", None)
-    st.session_state.pop(f"{GRID_KEY}_{sel_y}_{sel_m}", None)
+    for kind in GRIDS:
+        st.session_state.pop(f"{GRID_KEY}_{kind}_{sel_y}_{sel_m}", None)
     st.session_state["flash"] = f"Saved {len(changes)} date(s)."
     st.rerun()
 
@@ -362,26 +368,33 @@ def render_entry_grid():
         st.toast(st.session_state.pop("flash"))
     editable = entry_enabled()
     st.markdown(f"<div class='card-title'>Entry <span class='pill'>{MON}</span></div>"
-                "<div class='card-desc'>Cumulative MTD from Cecafe, bags. "
+                "<div class='card-desc'>Cumulative MTD from Cecafe, bags: registered and dispatched. "
                 + ("Click a cell, type, Save." if editable else "Read-only: add github_token in Secrets.")
                 + "</div>", unsafe_allow_html=True)
-    g = entry_grid()
     cfg = {c: st.column_config.TextColumn(c, alignment="right", width=88) for c in ALL}
     cfg["_index"] = st.column_config.TextColumn("Date", width=60)
-    key = f"{GRID_KEY}_{sel_y}_{sel_m}"
-    after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
-                           row_height=26, height=len(g) * 26 + 52, key=key)
-    if not editable:
-        return
+    cfg["Total"] = st.column_config.TextColumn("Total", alignment="right", width=92, disabled=True)
+    changes, keys = {}, []
     try:
-        changes = grid_changes(g, after)
+        for col_, (kind, cols) in zip(st.columns(len(GRIDS), gap="medium"), GRIDS.items()):
+            g = entry_grid(cols)
+            key = f"{GRID_KEY}_{kind}_{sel_y}_{sel_m}"
+            keys.append(key)
+            with col_:
+                st.markdown(f"<div class='grid-head'>{kind}</div>", unsafe_allow_html=True)
+                after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
+                                       row_height=26, height=len(g) * 26 + 52, key=key)
+            grid_changes(g, after, cols, changes)
     except ValueError:
         st.error("Numbers only (commas are fine).")
         return
-    bc = st.columns([1, 1, 1.4], vertical_alignment="center")
+    if not editable:
+        return
+    bc = st.columns([1, 1, 4], vertical_alignment="center")
     save = bc[0].button("Save", type="primary", disabled=not changes, width="stretch")
     if bc[1].button("Undo", disabled=not changes, width="stretch"):
-        st.session_state.pop(key, None)
+        for key in keys:
+            st.session_state.pop(key, None)
         st.session_state.pop("pending_grid", None)
         st.rerun()
     if changes:
@@ -691,7 +704,7 @@ def apply_entry(frame, d0, vals):
     if any(v is not None for v in vals.values()):
         frame = pd.concat([frame, pd.DataFrame([{"date": d0, **vals}])])
     frame = frame.sort_values("date")
-    frame = frame.reindex(columns=["date", *ALL])
+    frame = frame.reindex(columns=["date", *COLS])
     frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
     return frame, existed
 
@@ -726,7 +739,8 @@ def value_notes(d0, vals):
 
 
 def vals_text(vals, sep=", "):
-    return sep.join(f"{c} {fmt(vals.get(c))}" for c in ALL)
+    """Registered always; dispatched only where there is a number."""
+    return sep.join(f"{c} {fmt(vals.get(c))}" for c in COLS if c in ALL or vals.get(c) is not None)
 
 
 def commit_change(change, msg):
@@ -789,10 +803,9 @@ with st.container(key="nav"):
     page = st.radio("Page", ["Entry", "Seasonality", "History", "Projection Accuracy"], horizontal=True,
                     label_visibility="collapsed", key="page")
 if page == "Entry":
-    ec, tc = st.columns([1.4, 2.6], gap="medium")
-    with ec, st.container(border=True):
+    with st.container(border=True):
         render_entry_grid()
-    with tc, st.container(border=True):
+    with st.container(border=True):
         render_table()
     if entry_enabled():
         with st.expander("Save history", expanded=False):

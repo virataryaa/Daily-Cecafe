@@ -13,15 +13,16 @@ except Exception as e:
     print("Cannot read CSV:", e)
     sys.exit(1)
 
-if list(d.columns) not in (["date", "Arabica", "Robusta"], ["date", "Arabica", "Robusta", "Soluble"]):
-    problems.append(f"Columns must be date,Arabica,Robusta,Soluble - found {list(d.columns)}")
+EXPECTED = ["date", "Arabica", "Robusta", "Soluble", "Arabica Dispatched", "Robusta Dispatched", "Soluble Dispatched"]
+if list(d.columns) != EXPECTED[:len(d.columns)] or len(d.columns) < 3:
+    problems.append(f"Columns must be {','.join(EXPECTED)} - found {list(d.columns)}")
 else:
     dt = pd.to_datetime(d["date"], errors="coerce")
     for i in d.index[dt.isna()]:
         problems.append(f"Row {i + 2}: bad date '{d.loc[i, 'date']}' (use YYYY-MM-DD)")
     for dup in dt[dt.duplicated() & dt.notna()].dt.date.unique():
         problems.append(f"Duplicate date {dup}")
-    for c in [c for c in ["Arabica", "Robusta", "Soluble"] if c in d.columns]:
+    for c in [c for c in EXPECTED[1:] if c in d.columns]:
         v = pd.to_numeric(d[c], errors="coerce")
         for i in d.index[v.isna() & d[c].notna()]:
             problems.append(f"Row {i + 2}: {c} is not a number ('{d.loc[i, c]}')")

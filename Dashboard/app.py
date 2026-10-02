@@ -643,11 +643,13 @@ def month_chart(data: dict, seq, sel, prior, connect, as_pct):
                                      name=name, hoverinfo="skip"))
         fig.add_trace(go.Scatter(x=band.index, y=band["avg"], mode="lines", name=f"Avg of {pool.shape[1]} months",
                                  line=dict(color="#4a5578", width=1.6, dash="dot")))
+    latest = max(seq)                                              # newest month shown = bold navy
+    others = [ym for ym in seq if ym != latest]
     for k, ym in enumerate(seq):
         yy, mm = ym
-        first = ym == sel
+        first = ym == latest
         h = data[ym].reindex(range(1, month_dim(yy, mm) + 1))
-        colr = PCT_NAVY if first else PASTEL[k % len(PASTEL)]
+        colr = PCT_NAVY if first else PASTEL[(others.index(ym) + 1) % len(PASTEL)]
         fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}", mode="lines+markers",
                                  line=dict(color=colr, width=4.5 if first else 2.2, shape="spline", smoothing=0.4),
                                  marker=dict(size=9 if first else 5, color=colr, line=dict(color="#ffffff", width=1)),
@@ -660,6 +662,7 @@ def month_chart(data: dict, seq, sel, prior, connect, as_pct):
 
 
 def by_day_table(data: dict, cols, sel, band, as_pct, title, desc):
+    sel = max(cols)                                                # newest month = bold
     body = ""
     for d_ in range(1, 32):
         body += f"<tr><td class='dt'>{d_}</td>"
@@ -739,11 +742,11 @@ def render_dispatched():
 
     t1, t2 = st.columns(2, gap="medium")
     with t1, st.container(border=True):
-        by_day_table(pct, list(reversed(seq_p)), sel, band_p, True, "Dispatched %, by day", "Blank = not published that day.")
+        by_day_table(pct, sorted(pct), sel, band_p, True, "Dispatched %, by day", "All months. Blank = not published that day.")
     with t2, st.container(border=True):
-        if seq_n:
-            by_day_table(num, list(reversed(seq_n)), sel, band_n, False, "Dispatched bags, by day",
-                         "Cumulative. Blank = not published that day.")
+        if num:
+            by_day_table(num, sorted(num), sel, band_n, False, "Dispatched bags, by day",
+                         "All months, cumulative. Blank = not published that day.")
 
 
 def render_accuracy():

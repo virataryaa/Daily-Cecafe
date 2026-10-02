@@ -225,9 +225,7 @@ with st.sidebar:
     st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
                 "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
     st.subheader("Filters")
-    show_all = st.session_state.get("all_months", False)
-    sel = st.selectbox("Month", labels[::-1] if show_all else labels[::-1][:5], index=0)
-    st.checkbox("Show all months", key="all_months")
+    sel = st.selectbox("Month", labels[::-1][:12], index=0)
     sel_y, sel_m = ym_all[labels.index(sel)]
     MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
     first_year = int(df.index.year.min())

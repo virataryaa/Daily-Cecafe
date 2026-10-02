@@ -79,7 +79,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; color: #1a1a2e; }
 .dtab td.dt { text-align: center; background: #f0f2f8; }
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
-.dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
+.dtab td.early { color: #6f7895; background: #f4f5f8; font-weight: 400; font-style: italic; }
 .tab-note { font-size: 11px; color: #7a86a8; margin-top: 4px; }
 </style>
 """,
@@ -463,14 +463,15 @@ def render_entry():
     if not _has_secrets:
         st.info("Entry is off: add github_token in Streamlit Secrets.")
     else:
-        st.markdown("<div class='card-desc'>Cumulative month-to-date from Cecafe. Leave blank if not shown.</div>",
-                    unsafe_allow_html=True)
-        with st.form("entry", clear_on_submit=False):
-            ec = st.columns([1.2, 1, 1])
-            e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY")
-            e_ara = ec[1].text_input("Arabica", placeholder="e.g. 151,804")
-            e_rob = ec[2].text_input("Robusta", placeholder="e.g. 77,905")
-            ok = st.form_submit_button("Save", type="primary")
+        st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
+                    "Blank = not shown.</div>", unsafe_allow_html=True)
+        with st.form("entry", clear_on_submit=False, border=False):
+            ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
+            e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
+                                      label_visibility="collapsed")
+            e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
+            e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
+            ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
         if ok:
             try:
                 va, vr = parse_num(e_ara), parse_num(e_rob)
@@ -524,8 +525,7 @@ def render_entry():
 with t_main:
     view = st.radio("View", ["Tabular", "Visuals"], horizontal=True, label_visibility="collapsed", key="view")
     if view == "Tabular":
-        with st.expander("Add entry", expanded=bool(st.session_state.get("flash"))):
-            render_entry()
+        render_entry()
         render_table()
     else:
         sub_charts, sub_acc = st.tabs(["Seasonality", "Projection Accuracy"])

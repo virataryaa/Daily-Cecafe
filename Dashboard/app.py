@@ -440,7 +440,7 @@ def render_visuals():
                                      line=dict(color=RED, width=2), marker=dict(size=5), connectgaps=connect))
         if not cur_s.empty:
             ad = adjusted_daily(cur_s)
-            fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9",
+            fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9", hovertemplate="%{y:,.0f}",
                                  opacity=0.85, yaxis="y2"))
             c = cur_s.reindex(range(1, dim + 1))
             fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
@@ -454,7 +454,7 @@ def render_visuals():
         chart_layout(fig, height=420)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
-        fig.update_yaxes(range=[0, ymax * 1.05], selector=dict(anchor="x"))   # zero line = bar baseline
+        fig.update_layout(yaxis_range=[0, ymax * 1.05])            # zero line = bar baseline
         return fig
 
     def last_months_fig(comm):

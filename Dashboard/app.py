@@ -231,12 +231,11 @@ with st.sidebar:
         stats.append((f"{c} month-end", fmt(pr[2]) if pr[0] > 10 else "too early", "linear"))
     sidebar_stats(stats)
 
-t_daily, t_acc, t_entry = st.tabs(["Daily", "Projection Accuracy", "Entry"])
 
 # ---------------------------------------------------------------------------------------------
-# TAB: DAILY
+# VIEWS (rendered at the bottom)
 # ---------------------------------------------------------------------------------------------
-with t_daily:
+def render_table():
     dim_sel = month_dim(sel_y, sel_m)
     cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
     days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
@@ -275,6 +274,7 @@ with t_daily:
             unsafe_allow_html=True)
     st.write("")
 
+def render_visuals():
     def same_month_fig(comm):
         s = df[comm]
         cur_s = month_series(s, sel_y, sel_m)
@@ -367,9 +367,9 @@ with t_daily:
 # ---------------------------------------------------------------------------------------------
 # TAB: PROJECTION ACCURACY
 # ---------------------------------------------------------------------------------------------
-with t_acc:
+def render_accuracy():
     scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
-                     label_visibility="collapsed")
+                     label_visibility="collapsed", key="acc_scope")
     st.markdown("<div class='card-desc'>Linear projection vs actual month-end, by day. "
                 "Uses only data known that day.</div>", unsafe_allow_html=True)
     ac = st.columns(2)
@@ -453,7 +453,9 @@ def parse_num(txt):
     return float(txt) if txt else None
 
 
-with t_entry:
+def render_entry():
+    if st.session_state.get("flash"):
+        st.success(st.session_state.pop("flash"))
     try:
         _has_secrets = "github_token" in st.secrets
     except Exception:                       # no secrets file at all (local run)
@@ -510,10 +512,24 @@ with t_entry:
                 else:
                     cur_csv.to_csv(DATA, index=False, lineterminator="\n")   # show it now, before redeploy
                     st.cache_data.clear()
-                    st.success(f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: "
-                               f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
-        last5 = df.dropna(how="all").tail(5).iloc[::-1]
-        st.markdown("<div class='card-desc' style='margin-top:10px'>Last 5 entries</div>", unsafe_allow_html=True)
-        st.markdown("<table class='dtab'><tr class='sub'><th>Date</th><th>Arabica</th><th>Robusta</th></tr>"
-                    + "".join(f"<tr><td class='dt'>{i:%d-%b-%y}</td>{cell(r.Arabica)}{cell(r.Robusta)}</tr>"
-                              for i, r in last5.iterrows()) + "</table>", unsafe_allow_html=True)
+                    st.session_state["flash"] = (f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: "
+                                                 f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
+                    st.rerun()
+
+
+# ---------------------------------------------------------------------------------------------
+# LAYOUT
+# ---------------------------------------------------------------------------------------------
+(t_main,) = st.tabs(["Daily Cecafe"])
+with t_main:
+    view = st.radio("View", ["Tabular", "Visuals"], horizontal=True, label_visibility="collapsed", key="view")
+    if view == "Tabular":
+        with st.expander("Add entry", expanded=bool(st.session_state.get("flash"))):
+            render_entry()
+        render_table()
+    else:
+        sub_charts, sub_acc = st.tabs(["Seasonality", "Projection Accuracy"])
+        with sub_charts:
+            render_visuals()
+        with sub_acc:
+            render_accuracy()

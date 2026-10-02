@@ -386,7 +386,9 @@ def render_entry_grid():
     key = f"{GRID_KEY}_{sel_y}_{sel_m}"
     keys = [key]
     changes = {}
-    after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
+    shown = g.style.set_properties(subset=list(TOTALS.values()),
+                                   **{"background-color": "#e9ecf2", "font-weight": "600"})   # totals: light grey
+    after = st.data_editor(shown, column_config=cfg, disabled=not editable, width="content",
                            row_height=26, height=len(g) * 26 + 52, key=key)
     try:
         for cols in GRIDS.values():

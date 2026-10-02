@@ -141,12 +141,12 @@ proj_row = (f"<tr class='proj'><td class='dt'>Month-end</td><td colspan='3' clas
 
 st.markdown("""
 <style>
-.dtab { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
-.dtab th { text-align: center; padding: 6px 10px; font-weight: 600; }
+.dtab { width: auto; border-collapse: collapse; font-size: 11.5px; line-height: 1.15; background: #fff; }
+.dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
 .dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
 .dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
 .dtab .sub th { background: #0a2463; color: #fff; }
-.dtab td { text-align: right; padding: 4px 12px; border-bottom: 1px solid #eef0f6; }
+.dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
 .dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
 .dtab tr.proj td { background: #e8f3ee; font-weight: 700; color: #0a2463; border-top: 2px solid #0a2463; }

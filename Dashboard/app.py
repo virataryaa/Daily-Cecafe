@@ -233,7 +233,6 @@ with st.sidebar:
     first_year = int(df.index.year.min())
     min_year = (st.slider("History from", first_year, sel_y - 1, max(sel_y - 5, first_year))
                 if sel_y - 1 > first_year else first_year)
-    connect = st.toggle("Connect gaps", value=False, help="Draw lines across days Cecafe did not publish.")
 
 
 
@@ -742,6 +741,7 @@ if page == "Entry":
         with st.expander("Save history", expanded=False):
             render_history()
 elif page == "Seasonality":
+    connect = st.toggle("Connect gaps", value=True, help="Draw lines across days Cecafe did not publish.")
     render_visuals()
 elif page == "History":
     render_history_tables()

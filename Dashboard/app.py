@@ -1,46 +1,102 @@
 import base64
 import calendar
 import io
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import requests
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 st.set_page_config(page_title="Cecafe Daily", layout="wide")
 
-NAVY, TEAL, RED, AMBER, GREEN, GREY = "#0a2463", "#1f8a9c", "#c94a4a", "#c98a1f", "#1f9d6f", "#9aa3b8"
-HIST_COLORS = [GREY, AMBER, GREEN, TEAL, RED]          # oldest -> newest previous year
+NAVY = "#0a2463"
+TEAL = "#1f8a9c"
+GREEN = "#1f9d6f"
+RED = "#c94a4a"
+AMBER = "#c98a1f"
+GREY = "#8a94a8"
+OTHER_YEARS = [GREY, AMBER, GREEN, TEAL]               # older years, hidden by default (click legend to show)
+
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_daily.csv"
 COMMS = ["Arabica", "Robusta"]
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+LOOKBACK = 5                                            # years in the seasonal bands
 
-st.markdown("""
+# Strict light theme (same as Cotton On-Call): CSS hard-codes colours, no prefers-color-scheme,
+# and .streamlit/config.toml pins base="light".
+st.markdown(
+    """
 <style>
+[data-testid="stAppViewContainer"], [data-testid="stMain"], .main { background: #fafafa !important; }
+[data-testid="stHeader"] { background: #fafafa !important; }
+[data-testid="stSidebar"] { background: #f0f2f8 !important; border-right: 1px solid #dfe3ee; }
+h1, h2, h3, h4, h5, h6 { color: #0a2463 !important; }
 body, .main { color: #1a1a2e; }
-.block-container { padding-top: 1.6rem; max-width: 1500px; }
-h1, h2, h3 { color: #0a2463; }
-section[data-testid="stSidebar"] { background: #f0f2f8; }
-.stTabs [data-baseweb="tab-list"] { gap: 6px; background: #e6e9f2; padding: 4px; border-radius: 10px; width: fit-content; }
-.stTabs [data-baseweb="tab"] { border-radius: 8px; padding: 6px 18px; }
-.stTabs [aria-selected="true"] { background: #0a2463 !important; color: #fff !important; }
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-.side-note { font-size: 12px; color: #5a6688; line-height: 1.55; }
-.side-note b { color: #0a2463; }
-.card-desc { font-size: 12px; color: #7a86a8; margin: -6px 0 6px 0; }
-.proj { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
-.proj th { background: #0a2463; color: #fff; text-align: right; padding: 6px 10px; font-weight: 600; }
-.proj th:first-child, .proj td:first-child { text-align: left; }
-.proj td { text-align: right; padding: 6px 10px; border-bottom: 1px solid #e6e9f2; }
-.proj tr.hl td { background: #e8f3ee; font-weight: 700; color: #0a2463; }
+[data-testid="stSidebar"] { color: #1a1a2e; }
+.block-container { padding-top: 3.2rem; }
+
+/* Pill / segmented-control tabs */
+.stTabs [data-baseweb="tab-list"] { background: #eef0f6; padding: 4px; border-radius: 999px; gap: 4px; display: inline-flex; }
+.stTabs [data-baseweb="tab"] { background: transparent !important; color: #5a6688 !important; border-radius: 999px !important;
+                               padding: 8px 20px !important; font-weight: 600; border: none !important; }
+.stTabs [aria-selected="true"] { background: #0a2463 !important; color: #ffffff !important; }
+.stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
+
+/* Radio as pill/segmented control */
+div[role="radiogroup"] { background: #eef0f6; padding: 4px; border-radius: 999px; gap: 2px; display: inline-flex; flex-wrap: wrap; }
+div[role="radiogroup"] label { background: transparent !important; border-radius: 999px !important; padding: 4px 12px !important; margin: 0 !important; }
+div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: none; }
+div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 12px !important; color: #5a6688; }
+div[role="radiogroup"] label:has(input:checked) { background: #0a2463 !important; }
+div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; font-weight: 600; }
+
+/* Selects: white bg, dark text */
+[data-baseweb="popover"] [data-baseweb="menu"] { background: #ffffff !important; }
+[data-baseweb="popover"] [data-baseweb="menu"] li,
+[data-baseweb="popover"] [data-baseweb="menu"] li * { color: #1a1a2e !important; }
+[data-baseweb="select"] { background: #ffffff !important; }
+[data-baseweb="select"] > div { background: #ffffff !important; color: #1a1a2e !important; }
+
+.card-desc { color: #5a6688; font-size: 0.82rem; margin-top: -6px; margin-bottom: 10px; }
+.chart-head { color: #0a2463; font-weight: 600; font-size: 0.95rem; margin-bottom: 0; }
+
+/* Sidebar title + small stats */
+.sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.5rem; font-weight: 600; color: #0a2463; margin-bottom: 2px; }
+.sb-caption { font-size: 11px; color: #7a86a8; margin-bottom: 16px; line-height: 1.4; }
+.filter-stat { font-size: 12px; color: #5a6688 !important; line-height: 1.7; margin-bottom: 14px; }
+.filter-stat b { color: #0a2463 !important; font-size: 13px; }
+
+/* Compact Excel-style tables */
+.dtab { width: auto; border-collapse: collapse; font-size: 11.5px; line-height: 1.15; background: #ffffff; }
+.dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
+.dtab .g1 { background: #ffffff; color: #1a1a2e; border: 1px solid #dfe3ee; }
+.dtab .g2 { background: #dfe5f1; color: #0a2463; border: 1px solid #dfe3ee; }
+.dtab .g3 { background: #e3f1ee; color: #0a2463; border: 1px solid #dfe3ee; }
+.dtab .sub th { background: #0a2463; color: #ffffff; }
+.dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; color: #1a1a2e; }
+.dtab td.dt { text-align: center; background: #f0f2f8; }
+.dtab td.b { font-weight: 700; background: #f6f7fb; }
+.dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
+.tab-note { font-size: 11px; color: #7a86a8; margin-top: 4px; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
+# ---------------------------------------------------------------------------------------------
+# data helpers
+# ---------------------------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def load():
     return pd.read_csv(DATA, parse_dates=["date"]).set_index("date").sort_index()
+
+
+def month_dim(year, month):
+    return calendar.monthrange(year, month)[1]
 
 
 def month_series(s: pd.Series, year: int, month: int) -> pd.Series:
@@ -66,15 +122,8 @@ def project(m: pd.Series, year: int, month: int):
     if m.empty:
         return None
     n, x = int(m.index[-1]), float(m.iloc[-1])
-    dim = calendar.monthrange(year, month)[1]
+    dim = month_dim(year, month)
     return n, x, x / n * dim, dim
-
-
-LOOKBACK = 5          # years in the min-max band
-
-
-def month_dim(year, month):
-    return calendar.monthrange(year, month)[1]
 
 
 def full_curve(m: pd.Series, dim: int) -> pd.Series:
@@ -115,23 +164,43 @@ def fmt(v):
     return "-" if v is None or pd.isna(v) else f"{v:,.0f}"
 
 
-def base_layout(fig, title, height=430):
+def cell(v, bold=False, early=False):
+    return f"<td class='{'b' if bold else ''}{' early' if early else ''}'>{fmt(v)}</td>"
+
+
+def chart_layout(fig, **extra):
+    xaxis = dict(gridcolor="rgba(10,36,99,0.08)", color="#4a5578", dtick=2, range=[0.5, 31.5])
+    yaxis = dict(gridcolor="rgba(10,36,99,0.08)", color="#4a5578", tickformat=",", hoverformat=",.0f")
+    xaxis.update(extra.pop("xaxis", {}))
+    yaxis.update(extra.pop("yaxis", {}))
     fig.update_layout(
-        template="plotly_white", height=height, margin=dict(l=10, r=10, t=44, b=60),
-        title=dict(text=title, x=0.01, font=dict(size=15, color=NAVY)),
-        legend=dict(orientation="h", y=-0.1, x=0, xanchor="left", yanchor="top", font=dict(size=11)),
-        hovermode="x unified", paper_bgcolor="#fafafa", plot_bgcolor="#ffffff",
-        yaxis=dict(tickformat=","), xaxis=dict(dtick=2, title=None, range=[0.5, 31.5]),
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#1a1a2e"),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        hovermode="x unified",
+        xaxis=xaxis,
+        yaxis=yaxis,
+        margin=dict(t=20, b=30, l=10, r=10),
+        **extra,
     )
     return fig
 
 
+def sidebar_stats(rows):
+    """rows: list of (label, value, subtext) - small text, not cards."""
+    html = "<div class='filter-stat'>"
+    for label, value, sub in rows:
+        html += f"{label}: <b>{value}</b>" + (f" <span style='color:#7a86a8;'>({sub})</span>" if sub else "") + "<br>"
+    st.markdown(html + "</div>", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------------------------
+# month navigator (top) + sidebar
+# ---------------------------------------------------------------------------------------------
 df = load()
 last_date = df.dropna(how="all").index.max()
-
-# --------------------------------------------------------------------------- sidebar
-with st.sidebar:
-    st.markdown("### Cecafe Daily")
 
 ym_all = sorted({(d.year, d.month) for d in df.index})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
@@ -144,46 +213,56 @@ def _step(k):
     st.session_state["month_sel"] = labels[min(max(i, 0), len(labels) - 1)]
 
 
-tc = st.columns([5.2, 0.7, 1.4, 0.7], vertical_alignment="bottom")
 _i = labels.index(st.session_state["month_sel"])
-tc[1].button("< Prev", on_click=_step, args=(-1,), disabled=_i == 0, width="stretch")
-tc[2].selectbox("Month", labels[::-1], key="month_sel", label_visibility="collapsed")
-tc[3].button("Next >", on_click=_step, args=(1,), disabled=_i == len(labels) - 1, width="stretch")
+nav = st.columns([0.8, 1.4, 0.8, 7], vertical_alignment="bottom")
+nav[0].button("< Prev", on_click=_step, args=(-1,), disabled=_i == 0, width="stretch")
+nav[1].selectbox("Month", labels[::-1], key="month_sel", label_visibility="collapsed")
+nav[2].button("Next >", on_click=_step, args=(1,), disabled=_i == len(labels) - 1, width="stretch")
 sel = st.session_state["month_sel"]
-tc[0].markdown(f"## Cecafe Daily Registrations: {sel.split()[0]}'{sel.split()[1][2:]}")
+sel_y, sel_m = ym_all[labels.index(sel)]
+MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
 
 with st.sidebar:
-    sel_y, sel_m = ym_all[labels.index(sel)]
-    min_year = st.slider("History from", int(df.index.year.min()), sel_y - 1, max(sel_y - 5, int(df.index.year.min())))
-    connect = st.toggle("Connect gaps", value=False)
-    st.markdown(f"<div class='side-note'>Latest data: <b>{last_date:%d %b %Y}</b><br>"
-                f"Cumulative month-to-date registrations, bags.<br>"
-                f"Blank days are split equally in Adj daily.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sb-title'>Cecafe Daily</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
+                "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
+    st.subheader("Filters")
+    first_year = int(df.index.year.min())
+    min_year = (st.slider("History from", first_year, sel_y - 1, max(sel_y - 5, first_year))
+                if sel_y - 1 > first_year else first_year)
+    connect = st.toggle("Connect gaps", value=False, help="Draw lines across days Cecafe did not publish.")
+
+    st.divider()
+    ly, lm = last_date.year, last_date.month
+    stats = [("Cecafe as of", f"{last_date:%b %d, %Y}", f"{(datetime.today() - last_date).days}d old")]
+    for c in COMMS:
+        m = month_series(df[c], ly, lm)
+        if m.empty:
+            continue
+        pr = project(m, ly, lm)
+        chg = m.iloc[-1] - (m.iloc[-2] if len(m) > 1 else 0)
+        stats.append((f"{c} MTD", fmt(m.iloc[-1]), f"{chg:+,.0f} last"))
+        stats.append((f"{c} month-end", fmt(pr[2]) if pr[0] > 10 else "too early", "linear"))
+    sidebar_stats(stats)
 
 t_daily, t_acc, t_entry = st.tabs(["Daily", "Projection Accuracy", "Entry"])
 
+# ---------------------------------------------------------------------------------------------
+# TAB: DAILY
+# ---------------------------------------------------------------------------------------------
 with t_daily:
-    # --------------------------------------------------------------------------- daily table (Excel layout)
-    dim_sel = calendar.monthrange(sel_y, sel_m)[1]
+    dim_sel = month_dim(sel_y, sel_m)
     cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
     days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
 
-
-    def cell(v, bold=False, early=False):
-        return f"<td class='{'b' if bold else ''}{' early' if early else ''}'>{fmt(v)}</td>"
-
-
     rows_html = ""
     prev = {c: 0.0 for c in COMMS}
-    last_val = {c: 0.0 for c in COMMS}
     for d_ in days:
         a, r = cur["Arabica"].get(d_), cur["Robusta"].get(d_)
         chg = {}
         for c, v in (("Arabica", a), ("Robusta", r)):
             if v is not None and pd.notna(v):
-                chg[c] = v - prev[c]
-                prev[c] = v
-                last_val[c] = v
+                chg[c], prev[c] = v - prev[c], v
             else:
                 chg[c] = None
         chg_tot = None if chg["Arabica"] is None or chg["Robusta"] is None else chg["Arabica"] + chg["Robusta"]
@@ -191,42 +270,33 @@ with t_daily:
         pa = None if a is None else a / d_ * dim_sel          # linear month-end projection as of that day
         pb = None if r is None else r / d_ * dim_sel
         pt = None if pa is None or pb is None else pa + pb
+        e = d_ <= 10
         rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
                       + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
                       + cell(a) + cell(r) + cell(cum_tot, True)
-                      + cell(pa, early=d_ <= 10) + cell(pb, early=d_ <= 10) + cell(pt, True, early=d_ <= 10) + "</tr>")
+                      + cell(pa, early=e) + cell(pb, early=e) + cell(pt, True, early=e) + "</tr>")
 
-    st.markdown("""
-    <style>
-    .dtab { width: auto; border-collapse: collapse; font-size: 11.5px; line-height: 1.15; background: #fff; }
-    .dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
-    .dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
-    .dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
-    .dtab .g3 { background: #e8f3ee; color: #0a2463; border: 1px solid #1a1a2e; }
-    .dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
-    .dtab .sub th { background: #0a2463; color: #fff; }
-    .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
-    .dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
-    .dtab td.b { font-weight: 700; background: #f6f7fb; }
-    </style>""", unsafe_allow_html=True)
-    st.markdown(
-        "<table class='dtab'>"
-        "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
-        "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
-        + rows_html + "</table>"
-        "<div class='side-note' style='margin-top:4px'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card-desc'>Daily registrations, {MON}.</div>", unsafe_allow_html=True)
+    if not days:
+        st.info(f"No data for {MON} yet.")
+    else:
+        st.markdown(
+            "<table class='dtab'>"
+            "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th>"
+            "<th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
+            "<tr class='sub'><th>Until</th>" + "<th>Arabica</th><th>Robusta</th><th>Total</th>" * 3 + "</tr>"
+            + rows_html + "</table><div class='tab-note'>Grey = day 1-10, too early to project.</div>",
+            unsafe_allow_html=True)
     st.write("")
 
-
-    # --------------------------------------------------------------------------- charts: Arabica row, Robusta row
-    def render_charts(comm):
+    def same_month_fig(comm):
         s = df[comm]
         cur_s = month_series(s, sel_y, sel_m)
-        dim = calendar.monthrange(sel_y, sel_m)[1]
+        dim = month_dim(sel_y, sel_m)
         pr = project(cur_s, sel_y, sel_m)
-        c1, c2 = st.columns(2)
-
         fig = go.Figure()
+
+        # bands from the previous LOOKBACK years (interpolated across Cecafe's blank days)
         band = {}
         for y in range(sel_y - LOOKBACK, sel_y):
             hm = month_series(s, y, sel_m)
@@ -234,41 +304,52 @@ with t_daily:
                 band[y] = full_curve(hm, month_dim(y, sel_m)).reindex(range(1, dim + 1))
         if len(band) >= 2:
             bd = pd.DataFrame(band)
-            fig.add_trace(go.Scatter(x=bd.index, y=bd.max(axis=1), mode="lines", line=dict(width=0),
-                                     hoverinfo="skip", showlegend=False))
-            fig.add_trace(go.Scatter(x=bd.index, y=bd.min(axis=1), mode="lines", line=dict(width=0),
-                                     fill="tonexty", fillcolor="rgba(31,138,156,0.14)",
-                                     name=f"{len(band)}y min-max", hoverinfo="skip"))
-        years = [y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty]
-        for i, y in enumerate(years):
-            h = month_series(s, y, sel_m).reindex(range(1, calendar.monthrange(y, sel_m)[1] + 1))
-            back = len(years) - i
-            col = HIST_COLORS[-back] if back <= len(HIST_COLORS) else GREY
-            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers",
-                                     line=dict(color=col, width=2), marker=dict(size=5, symbol="x"),
-                                     connectgaps=connect))
+            q = bd.agg(["min", "max", "mean"], axis=1)
+            q["p25"], q["p75"] = bd.quantile(0.25, axis=1), bd.quantile(0.75, axis=1)
+            for lo, hi, colr, name in [("min", "max", "rgba(31,138,156,0.10)", "Min-Max"),
+                                       ("p25", "p75", "rgba(31,138,156,0.24)", "25th-75th pct")]:
+                fig.add_trace(go.Scatter(x=q.index, y=q[hi], line=dict(width=0), showlegend=False, hoverinfo="skip"))
+                fig.add_trace(go.Scatter(x=q.index, y=q[lo], fill="tonexty", fillcolor=colr, line=dict(width=0),
+                                         name=name, hoverinfo="skip"))
+            fig.add_trace(go.Scatter(x=q.index, y=q["mean"], mode="lines", name=f"{len(band)}y average",
+                                     line=dict(color="#4a5578", width=1.5, dash="dot")))
+
+        # older years: available, hidden until clicked in the legend
+        older = [y for y in range(min_year, sel_y - 1) if not month_series(s, y, sel_m).empty]
+        for i, y in enumerate(older):
+            h = month_series(s, y, sel_m).reindex(range(1, month_dim(y, sel_m) + 1))
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers", visible="legendonly",
+                                     line=dict(color=OTHER_YEARS[i % len(OTHER_YEARS)], width=1.5),
+                                     marker=dict(size=4), connectgaps=connect))
+
+        # last year red, current year navy bold
+        h = month_series(s, sel_y - 1, sel_m)
+        if not h.empty:
+            h = h.reindex(range(1, month_dim(sel_y - 1, sel_m) + 1))
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(sel_y - 1), mode="lines+markers",
+                                     line=dict(color=RED, width=2), marker=dict(size=5), connectgaps=connect))
         if not cur_s.empty:
-            c = cur_s.reindex(range(1, dim + 1))
             ad = adjusted_daily(cur_s)
             fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9",
                                  opacity=0.85, yaxis="y2"))
+            c = cur_s.reindex(range(1, dim + 1))
             fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
-                                     line=dict(color=NAVY, width=3.5),
-                                     marker=dict(size=8, color="#f2c200", line=dict(color=NAVY, width=1.5)),
-                                     connectgaps=connect))
+                                     line=dict(color=NAVY, width=3), marker=dict(size=7), connectgaps=connect))
             if pr and 10 < pr[0] < dim:          # no projection line in the first 10 days
                 fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
-                                         line=dict(color=NAVY, width=2, dash="dot"),
+                                         line=dict(color=NAVY, width=1.5, dash="dot"),
                                          marker=dict(size=7, symbol="diamond")))
             fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, max(ad.max() * 5, 1)],
                                           showgrid=False, visible=False))
-        base_layout(fig, f"{comm}: {MONTHS[sel_m - 1]} vs same month, previous years")
-        ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
+        chart_layout(fig, height=420)
+        visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
+        ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
         fig.update_yaxes(range=[0, ymax * 1.05], selector=dict(anchor="x"))   # zero line = bar baseline
-        with c1:
-            st.plotly_chart(fig, width="stretch")
+        return fig
 
-        fig2 = go.Figure()
+    def last_months_fig(comm):
+        s = df[comm]
+        fig = go.Figure()
         seq, y, m = [], sel_y, sel_m
         for _ in range(5):
             seq.append((y, m))
@@ -279,20 +360,27 @@ with t_daily:
             h = month_series(s, yy, mm)
             if h.empty:
                 continue
-            h = h.reindex(range(1, calendar.monthrange(yy, mm)[1] + 1))
-            fig2.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
-                                      mode="lines+markers", line=dict(color=col, width=3.5 if k == 0 else 2),
-                                      marker=dict(size=7 if k == 0 else 5), connectgaps=connect))
-        base_layout(fig2, f"{comm}: {MONTHS[sel_m - 1]} {sel_y} vs last 4 months")
-        with c2:
-            st.plotly_chart(fig2, width="stretch")
-
+            h = h.reindex(range(1, month_dim(yy, mm) + 1))
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
+                                     mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
+                                     marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
+        return chart_layout(fig, height=420)
 
     for comm in COMMS:
-        render_charts(comm)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>"
+                        "<div class='card-desc'>Bands = last 5 years. Older years in legend.</div>",
+                        unsafe_allow_html=True)
+            st.plotly_chart(same_month_fig(comm), width="stretch")
+        with c2:
+            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>"
+                        "<div class='card-desc'>Cumulative by day of month.</div>", unsafe_allow_html=True)
+            st.plotly_chart(last_months_fig(comm), width="stretch")
 
-
-# --------------------------------------------------------------------------- projection accuracy
+# ---------------------------------------------------------------------------------------------
+# TAB: PROJECTION ACCURACY
+# ---------------------------------------------------------------------------------------------
 with t_acc:
     scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
                      label_visibility="collapsed")
@@ -310,16 +398,17 @@ with t_acc:
             g = a.groupby("day")["err"].agg(miss=lambda v: v.abs().median(), bias="median",
                                             lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9))
             n_months = a[["year", "month"]].drop_duplicates().shape[0]
+            st.markdown(f"<div class='chart-head'>{comm}: miss % by day</div>"
+                        f"<div class='card-desc'>{n_months} months. + = projection too high.</div>",
+                        unsafe_allow_html=True)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=g.index, y=g.hi, mode="lines", line=dict(width=0),
-                                     hoverinfo="skip", showlegend=False))
-            fig.add_trace(go.Scatter(x=g.index, y=g.lo, mode="lines", line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(31,138,156,0.14)", name="80% of months"))
-            fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss (+ = too high)", mode="lines+markers",
+            fig.add_trace(go.Scatter(x=g.index, y=g.hi, line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fig.add_trace(go.Scatter(x=g.index, y=g.lo, line=dict(width=0), fill="tonexty",
+                                     fillcolor="rgba(31,138,156,0.16)", name="80% of months"))
+            fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss", mode="lines+markers",
                                      line=dict(color=NAVY, width=3), marker=dict(size=6)))
             fig.add_hline(y=0, line=dict(color=GREY, width=1))
-            base_layout(fig, f"{comm}: linear projection miss % by day ({n_months} months)", height=360)
-            fig.update_yaxes(ticksuffix="%", tickformat=".0f")
+            chart_layout(fig, height=360, yaxis=dict(ticksuffix="%", tickformat=".0f", hoverformat=".1f"))
             st.plotly_chart(fig, width="stretch")
             body_ = ""
             for d_ in (5, 10, 15, 20, 25):
@@ -330,19 +419,20 @@ with t_acc:
             st.markdown("<table class='dtab'><tr class='sub'><th>As of</th><th>Avg miss</th><th>Bias</th>"
                         "<th>80% range</th></tr>" + body_ + "</table>", unsafe_allow_html=True)
 
-
-# --------------------------------------------------------------------------- entry: write a row to GitHub
+# ---------------------------------------------------------------------------------------------
+# TAB: ENTRY - writes a row to the CSV in GitHub
+# ---------------------------------------------------------------------------------------------
 REPO, REPO_PATH = "virataryaa/Daily-Cecafe", "Database/cecafe_daily.csv"
 GH_API = f"https://api.github.com/repos/{REPO}/contents/{REPO_PATH}"
+
+
+class GitHubError(Exception):
+    pass
 
 
 def gh_headers():
     tok = str(st.secrets["github_token"]).strip().strip('"').strip("'")
     return {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
-
-
-class GitHubError(Exception):
-    pass
 
 
 def gh_check(r):
@@ -374,9 +464,7 @@ def gh_write(frame: pd.DataFrame, sha: str, msg: str):
 
 def parse_num(txt):
     txt = (txt or "").replace(",", "").strip()
-    if not txt:
-        return None
-    return float(txt)
+    return float(txt) if txt else None
 
 
 with t_entry:

@@ -93,6 +93,9 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; color: #1a1a2e; }
 .dtab td.dt { text-align: center; background: #f0f2f8; }
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
+.dtab-lg { font-size: 13px; }
+.dtab-lg th { padding: 3px 9px; }
+.dtab-lg td { padding: 2px 9px; }
 .dtab td.avgc { background: #e3f1ee; color: #0a2463; font-style: italic; }
 .dtab td.early { color: #6f7895; background: #f4f5f8; font-weight: 400; font-style: italic; }
 .tab-note { font-size: 11px; color: #7a86a8; margin-top: 4px; }
@@ -282,7 +285,7 @@ def render_table():
     else:
         n = len(cols) + 1
         st.markdown(
-            "<div style='overflow-x:auto'><table class='dtab'>"
+            "<div style='overflow-x:auto'><table class='dtab dtab-lg'>"
             f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
             f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th></tr>"
             "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3 + "</tr>"

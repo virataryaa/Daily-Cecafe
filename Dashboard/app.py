@@ -188,6 +188,8 @@ def render_charts(comm):
         fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, max(ad.max() * 5, 1)],
                                       showgrid=False, visible=False))
     base_layout(fig, f"{comm}: {MONTHS[sel_m - 1]} vs same month, previous years")
+    ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
+    fig.update_yaxes(range=[0, ymax * 1.05], selector=dict(anchor="x"))   # zero line = bar baseline
     with c1:
         st.plotly_chart(fig, width="stretch")
 

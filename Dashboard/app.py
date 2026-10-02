@@ -201,6 +201,13 @@ def chart_layout(fig, **extra):
     return fig
 
 
+def bottom_legend(fig):
+    fig.update_layout(legend=dict(orientation="h", x=0, y=-0.08, xanchor="left", yanchor="top",
+                                  font=dict(size=11), bgcolor="rgba(0,0,0,0)", traceorder="normal"),
+                      margin=dict(t=20, b=10, l=10, r=10), height=(fig.layout.height or 480) + 50)
+    return fig
+
+
 def sidebar_stats(rows):
     """rows: list of (label, value, subtext) - small text, not cards."""
     html = "<div class='filter-stat'>"
@@ -424,11 +431,11 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=q.index, y=q["mean"], mode="lines", name=f"{len(band)}y average",
                                      line=dict(color="#4a5578", width=1.5, dash="dot")))
 
-        # older years: available, hidden until clicked in the legend
+        # older years: shown for the chosen range (Last 2 / All)
         older = [y for y in range(min_year, sel_y - 1) if not month_series(s, y, sel_m).empty]
         for i, y in enumerate(older):
             h = month_series(s, y, sel_m).reindex(range(1, month_dim(y, sel_m) + 1))
-            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers", visible="legendonly",
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers",
                                      line=dict(color=OTHER_YEARS[i % len(OTHER_YEARS)], width=1.5),
                                      marker=dict(size=4), connectgaps=connect))
 
@@ -461,7 +468,7 @@ def render_visuals():
         if per_day:
             avg_d = sum(per_day) / len(per_day)
             fig.add_trace(go.Scatter(x=[0.5, dim + 0.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
-                                     name=f"{len(per_day)}y avg daily", hovertemplate="%{y:,.0f}",
+                                     name=f"{len(per_day)}y avg/day", hovertemplate="%{y:,.0f}",
                                      line=dict(color="#4a5578", width=1.5, dash="dot")))
         chart_layout(fig, height=480)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
@@ -475,6 +482,11 @@ def render_visuals():
             xaxis=dict(anchor="y2"),
             barmode="group", bargap=0.25, bargroupgap=0.05,
         )
+        order = [str(sel_y), str(sel_y - 1), *[str(y) for y in reversed(older)], "Projection",
+                 f"{LOOKBACK}y average", "25th-75th pct", "Min-Max"]
+        for tr in fig.data:
+            tr.legendrank = (order.index(tr.name) if tr.name in order else 50) + (100 if tr.yaxis == "y2" else 0)
+        bottom_legend(fig)
         return fig
 
     def last_months_fig(comm):
@@ -494,13 +506,13 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
                                      mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
-        return chart_layout(fig, height=480)
+        return bottom_legend(chart_layout(fig, height=480))
 
     # row 1: same month across years, Arabica | Robusta
     for col_, comm in zip(st.columns(len(COMMS)), COMMS):
         with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>"
-                        "<div class='card-desc'>Bands = last 5 years. Older years in legend.</div>",
+                        "<div class='card-desc'>Bands = last 5 years. Bars = Adj daily, dotted = 5y avg/day.</div>",
                         unsafe_allow_html=True)
             st.plotly_chart(same_month_fig(comm), width="stretch")
     # row 2: last 4 months, Arabica | Robusta

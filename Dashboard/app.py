@@ -93,6 +93,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; color: #1a1a2e; }
 .dtab td.dt { text-align: center; background: #f0f2f8; }
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
+.dtab td.avgc { background: #e3f1ee; color: #0a2463; font-style: italic; }
 .dtab td.early { color: #6f7895; background: #f4f5f8; font-weight: 400; font-style: italic; }
 .tab-note { font-size: 11px; color: #7a86a8; margin-top: 4px; }
 .dtab td.ts { font-size: 10.5px; font-style: italic; color: #7a86a8; text-align: left; }
@@ -602,53 +603,116 @@ def pct_by_month(kind: str) -> dict:
     return {(y, m): g.set_axis(g.index.day) for (y, m), g in s.groupby([s.index.year, s.index.month])}
 
 
+PASTEL = ["#f2a9a0", "#f4cf86", "#f2a9a0", "#b4bde6", "#a6d8b6", "#d8b4e2", "#f6bfd6", "#c3cfb8"]   # soft lines
+PCT_NAVY = "#3d5a9c"                                                                                  # selected month
+
+
+def disp_numbers(kind: str) -> dict:
+    """{(year, month): Series(day -> dispatched cumulative bags)}.
+    History = Excel % x registered cumulative of that day (Arabica + Robusta). From Oct'26 = the dispatched numbers entered."""
+    types = ALL if kind == "Total" else [kind]
+    reg = pd.concat([df[c] for c in types], axis=1)
+    dis = pd.concat([df[DISP[c]] for c in types], axis=1)
+    ok = reg.notna().values & dis.notna().values
+    live = pd.Series((dis.fillna(0).values * ok).sum(axis=1), index=df.index)[ok.any(axis=1)]
+    s = live
+    if kind == "Total":
+        hp = pct_history()
+        both = df[["Arabica", "Robusta"]].dropna()
+        hist = (hp.reindex(both.index) * both.sum(axis=1)).dropna()
+        s = pd.concat([hist, live])
+        s = s[~s.index.duplicated(keep="last")].sort_index()
+    return {(y, m): g.set_axis(g.index.day) for (y, m), g in s.groupby([s.index.year, s.index.month])}
+
+
 def render_dispatched():
-    kind = st.radio("Type", ["Total", *ALL], horizontal=True, label_visibility="collapsed", key="pct_kind")
-    connect = st.toggle("Connect gaps", value=True, key="pct_connect")
+    oc = st.columns([2.6, 1.7, 1.6, 4], vertical_alignment="center")
+    with oc[0]:
+        kind = st.radio("Type", ["Total", *ALL], horizontal=True, label_visibility="collapsed", key="pct_kind")
+    with oc[1]:
+        span = st.radio("Months", ["Last 2", "All months"], horizontal=True, label_visibility="collapsed",
+                        key="pct_span")
+    with oc[2]:
+        connect = st.toggle("Connect gaps", value=True, key="pct_connect")
     months = pct_by_month(kind)
     if not months:
         st.info("No dispatched numbers yet. Add them in the Entry tab (Disp columns)." if kind != "Total"
                 else "No data yet.")
         return
-    seq, y, m = [], sel_y, sel_m
-    for _ in range(8):                                           # selected month + 7 before it
-        seq.append((y, m))
-        m -= 1
-        if m == 0:
-            y, m = y - 1, 12
-    seq = [ym for ym in seq if ym in months]
+    sel = (sel_y, sel_m)
+    prior = sorted(ym for ym in months if ym < sel)                  # months before the selected one
+    # lines: the selected month plus 2 before it (calendar), or every month up to it
+    if span == "Last 2":
+        seq, y, m = [], sel_y, sel_m
+        for _ in range(3):
+            seq.append((y, m))
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+        seq = [ym for ym in seq if ym in months]
+    else:
+        seq = [ym for ym in reversed(prior)]
+        seq = ([sel] if sel in months else []) + seq
     if not seq:
-        st.info(f"No dispatched % for {MON} or the 7 months before it yet.")
+        st.info(f"No dispatched % for {MON} or the 2 months before it yet.")
         return
-    palette = [NAVY, RED, TEAL, AMBER, GREEN, GREY, "#7a86a8", "#b98fc0"]
-    fig = go.Figure()
-    for k, (yy, mm) in enumerate(seq):
-        h = months[(yy, mm)].reindex(range(1, month_dim(yy, mm) + 1))
-        first = (yy, mm) == (sel_y, sel_m)
-        fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}", mode="lines+markers",
-                                 line=dict(color=palette[k % len(palette)], width=3.5 if first else 1.8),
-                                 marker=dict(size=7 if first else 4), connectgaps=connect))
-    chart_layout(fig, height=480, yaxis=dict(tickformat=".0%", hoverformat=".1%", range=[0, 1.02]))
-    bottom_legend(fig)
-    with st.container(border=True):
-        st.markdown(f"<div class='card-title'>Dispatched / Registered <span class='pill'>{kind}</span></div>"
-                    "<div class='card-desc'>Daily, cumulative month-to-date. History from the desk Excel; "
-                    "from Oct'26 it is computed from the Entry table.</div>", unsafe_allow_html=True)
-        st.plotly_chart(fig, width="stretch")
 
-    # day x month table, like the Excel sheet
-    cols = [ym for ym in reversed(seq)]
+    days = range(1, 32)
+    # bands + average over all earlier months (gaps interpolated, nothing invented past the last published day)
+    pool = pd.DataFrame({ym: months[ym].reindex(days).interpolate(limit_area="inside") for ym in prior})
+    show_band = pool.shape[1] >= 3
+    if show_band:
+        cnt = pool.notna().sum(axis=1)
+        band = pd.DataFrame({"lo": pool.min(axis=1), "hi": pool.max(axis=1), "p25": pool.quantile(0.25, axis=1),
+                             "p75": pool.quantile(0.75, axis=1), "avg": pool.mean(axis=1)}).where(cnt >= 3)
+    finals = [months[ym].iloc[-1] for ym in prior if months[ym].index.max() >= month_dim(*ym) - 3]
+    avg_final = sum(finals) / len(finals) if finals else None
+
+    fig = go.Figure()
+    if show_band:
+        for lo, hi, colr, name in [("lo", "hi", "rgba(31,138,156,0.10)", "Min-Max"),
+                                   ("p25", "p75", "rgba(31,138,156,0.26)", "25th-75th pct")]:
+            fig.add_trace(go.Scatter(x=band.index, y=band[hi], line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fig.add_trace(go.Scatter(x=band.index, y=band[lo], fill="tonexty", fillcolor=colr, line=dict(width=0),
+                                     name=name, hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=band.index, y=band["avg"], mode="lines", name=f"Avg of {len(prior)} months",
+                                 line=dict(color="#4a5578", width=1.6, dash="dot")))
+    for k, ym in enumerate(seq):
+        yy, mm = ym
+        first = ym == sel
+        h = months[ym].reindex(range(1, month_dim(yy, mm) + 1))
+        colr = PCT_NAVY if first else PASTEL[(k - (0 if sel in months else 0)) % len(PASTEL)]
+        fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}", mode="lines+markers",
+                                 line=dict(color=colr, width=3.2 if first else 2.2, shape="spline", smoothing=0.4),
+                                 marker=dict(size=7 if first else 5, color=colr, line=dict(color="#ffffff", width=1)),
+                                 connectgaps=connect))
+    chart_layout(fig, height=520, yaxis=dict(tickformat=".0%", hoverformat=".1%", range=[0, 1.02]))
+    bottom_legend(fig)
+
+    cols = list(reversed(seq))                                       # table: oldest -> newest
+    dn = disp_numbers(kind)
     body = ""
-    for d_ in range(1, 32):
+    for d_ in days:
         body += f"<tr><td class='dt'>{d_}</td>"
         for ym in cols:
-            v = months[ym].get(d_)
-            body += (f"<td class='{'b' if ym == (sel_y, sel_m) else ''}'>"
-                     f"{'' if v is None or pd.isna(v) else f'{v:.0%}'}</td>")
+            v = dn.get(ym, pd.Series(dtype=float)).get(d_)
+            body += (f"<td class='{'b' if ym == sel else ''}'>"
+                     f"{'' if v is None or pd.isna(v) else f'{v:,.0f}'}</td>")
         body += "</tr>"
     head = "".join(f"<th>{MONTHS[mm - 1]}'{str(yy)[2:]}</th>" for yy, mm in cols)
-    with st.container(border=True):
-        st.markdown("<div class='card-title'>By day</div><div class='card-desc'>Blank = not published that day.</div>"
+
+    cl, cr = st.columns([2.0, 1.5], gap="medium")
+    with cl, st.container(border=True):
+        avg_txt = (f" Average month-end: <b>{avg_final:.0%}</b> over {len(finals)} complete months."
+                   if avg_final is not None else "")
+        st.markdown(f"<div class='card-title'>Dispatched / Registered <span class='pill'>{kind}</span></div>"
+                    "<div class='card-desc'>Daily, cumulative month-to-date. Bands = all earlier months."
+                    f"{avg_txt}</div>", unsafe_allow_html=True)
+        st.plotly_chart(fig, width="stretch")
+    with cr, st.container(border=True):
+        st.markdown("<div class='card-title'>Dispatched, cumulative</div>"
+                    "<div class='card-desc'>Bags. History = Dispatched % &times; registered that day (Arabica + Robusta); "
+                    "from Oct'26 the entered numbers. Blank = not published.</div>"
                     f"<div style='overflow-x:auto'><table class='dtab'><tr class='sub'><th>Day</th>{head}</tr>{body}</table></div>",
                     unsafe_allow_html=True)
 

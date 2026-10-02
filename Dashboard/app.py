@@ -218,7 +218,8 @@ with t_daily:
             fig.add_trace(go.Scatter(x=bd.index, y=bd.max(axis=1), mode="lines", line=dict(width=0),
                                      hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=bd.index, y=bd.min(axis=1), mode="lines", line=dict(width=0),
-                                     fill="tonexty", fillcolor="rgba(10,36,99,0.08)",
+                                     fill="tonexty", fillcolor="rgba(31,138,156,0.10)",
+                                 fillpattern=dict(shape="/", fgcolor="rgba(31,138,156,0.35)", size=7, solidity=0.15),
                                      name=f"{len(band)}y min-max", hoverinfo="skip"))
         years = [y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty]
         for i, y in enumerate(years):
@@ -295,7 +296,8 @@ with t_acc:
             fig.add_trace(go.Scatter(x=g.index, y=g.hi, mode="lines", line=dict(width=0),
                                      hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=g.index, y=g.lo, mode="lines", line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(10,36,99,0.08)", name="80% of months"))
+                                     fillcolor="rgba(31,138,156,0.10)",
+                                 fillpattern=dict(shape="/", fgcolor="rgba(31,138,156,0.35)", size=7, solidity=0.15), name="80% of months"))
             fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss (+ = too high)", mode="lines+markers",
                                      line=dict(color=NAVY, width=3), marker=dict(size=6)))
             fig.add_hline(y=0, line=dict(color=GREY, width=1))

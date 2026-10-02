@@ -470,7 +470,7 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=[0.5, dim + 0.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
                                      name=f"{len(per_day)}y avg/day", hovertemplate="%{y:,.0f}",
                                      line=dict(color="#4a5578", width=1.5, dash="dot")))
-        chart_layout(fig, height=480)
+        chart_layout(fig, height=600)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
         # two stacked panels on one day axis: cumulative on top, Adj daily as a mini bar chart below

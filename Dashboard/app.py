@@ -63,6 +63,12 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 
 .card-desc { color: #5a6688; font-size: 0.82rem; margin-top: -6px; margin-bottom: 10px; }
 .chart-head { color: #0a2463; font-weight: 600; font-size: 0.95rem; margin-bottom: 0; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
+    background: #ffffff; border: 1px solid #e3e7f0 !important; border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(10,36,99,0.06); }
+.card-title { color: #0a2463; font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
+.pill { display: inline-block; background: #e6e9f2; color: #0a2463; font-size: 11px; font-weight: 600;
+        padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
 .grid-head { color: #0a2463; font-weight: 600; font-size: 0.85rem; padding: 3px 8px; background: #e6e9f2; border-radius: 6px 6px 0 0; margin-bottom: 2px; display: inline-block; }
 
 /* Sidebar title + small stats */
@@ -253,18 +259,18 @@ def render_table():
             rows_html += "".join(cell(grp[c], early=early) for c in cols) + cell(total(list(grp.values())), True, early=early)
         rows_html += "</tr>"
 
-    st.markdown(f"<div class='chart-head' style='margin-top:18px'>Daily change and linear month-end, {MON}</div>"
+    st.markdown(f"<div class='card-title'>Daily change and linear month-end <span class='pill'>{MON}</span></div>"
                 "<div class='card-desc'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
     if not days:
         st.info(f"No data for {MON} yet.")
     else:
         n = len(cols) + 1
         st.markdown(
-            "<table class='dtab'>"
+            "<div style='overflow-x:auto'><table class='dtab'>"
             f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
             f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th></tr>"
             "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3 + "</tr>"
-            + rows_html + "</table>",
+            + rows_html + "</table></div>",
             unsafe_allow_html=True)
     st.write("")
 
@@ -301,6 +307,11 @@ def render_history_tables():
 def entry_grid():
     """Selected month only: one row per day, one column per type (text cells: blank stays blank, commas allowed)."""
     dim = month_dim(sel_y, sel_m)
+    today = pd.Timestamp.today()
+    if (sel_y, sel_m) == (today.year, today.month):
+        last_seen = max([month_series(df[c], sel_y, sel_m).index.max() for c in ALL
+                         if not month_series(df[c], sel_y, sel_m).empty] or [0])
+        dim = min(dim, max(today.day, last_seen) + 2)
     g = pd.DataFrame(index=[f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)])
     for c in ALL:
         m = month_series(df[c], sel_y, sel_m)
@@ -343,17 +354,18 @@ def save_grid(changes):
 
 def render_entry_grid():
     if st.session_state.get("flash"):
-        st.success(st.session_state.pop("flash"))
+        st.toast(st.session_state.pop("flash"))
     editable = entry_enabled()
-    st.markdown(f"<div class='chart-head'>Entry, {MON}</div><div class='card-desc'>Cumulative MTD from Cecafe. "
-                + ("Click a cell to type, then Save. Blank = not shown." if editable
-                   else "Read-only: add github_token in Secrets to edit.") + "</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card-title'>Entry <span class='pill'>{MON}</span></div>"
+                "<div class='card-desc'>Cumulative MTD from Cecafe, bags. "
+                + ("Click a cell, type, Save." if editable else "Read-only: add github_token in Secrets.")
+                + "</div>", unsafe_allow_html=True)
     g = entry_grid()
-    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=82) for c in ALL}
-    cfg["_index"] = st.column_config.TextColumn("", width=54)
+    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=88) for c in ALL}
+    cfg["_index"] = st.column_config.TextColumn("Date", width=60)
     key = f"{GRID_KEY}_{sel_y}_{sel_m}"
     after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
-                           row_height=22, height=len(g) * 22 + 38, key=key)
+                           row_height=26, height=len(g) * 26 + 52, key=key)
     if not editable:
         return
     try:
@@ -682,7 +694,9 @@ def render_history():
         return
     try:
         hist = save_history()
-    except (GitHubError, requests.RequestException):
+    except (GitHubError, requests.RequestException) as ex:
+        st.markdown(f"<div class='card-title'>Save history</div><div class='card-desc'>Not available: {ex}</div>",
+                    unsafe_allow_html=True)
         return
     rows = ""
     for ts, msg in hist:
@@ -701,7 +715,7 @@ def render_history():
         if rows.count("<tr>") >= 10:
             break
     if rows:
-        st.markdown("<div class='chart-head' style='margin-top:14px'>Save history</div>"
+        st.markdown("<div class='card-title'>Save history</div>"
                     "<div class='card-desc'>Last 10 saves, Amsterdam time (CET).</div>"
                     "<table class='dtab'><tr class='sub'><th>Saved at</th><th>For</th>"
                     + "".join(f"<th>{c}</th>" for c in ALL) + "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
@@ -715,12 +729,15 @@ with t_main:
     view = st.radio("View", ["Tabular", "Visuals & History"], horizontal=True, label_visibility="collapsed",
                     key="view")
     if view == "Tabular":
-        ec, tc = st.columns([1.15, 2.6], gap="medium")
-        with ec:
+        ec, tc = st.columns([1.4, 2.6], gap="medium")
+        with ec, st.container(border=True):
             render_entry_grid()
         with tc:
-            render_table()
-            render_history()
+            with st.container(border=True):
+                render_table()
+            if entry_enabled():
+                with st.container(border=True):
+                    render_history()
     else:
         sub_charts, sub_acc = st.tabs(["Seasonality & History", "Projection Accuracy"])
         with sub_charts:

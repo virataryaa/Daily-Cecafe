@@ -438,10 +438,16 @@ def render_visuals():
             h = h.reindex(range(1, month_dim(sel_y - 1, sel_m) + 1))
             fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(sel_y - 1), mode="lines+markers",
                                      line=dict(color=RED, width=2), marker=dict(size=5), connectgaps=connect))
+        # Adj daily panel: last year (light red) next to this year
+        ly = month_series(s, sel_y - 1, sel_m)
+        if not ly.empty:
+            ad_ly = adjusted_daily(ly)
+            fig.add_trace(go.Bar(x=ad_ly.index, y=ad_ly.values, name=f"Adj daily {sel_y - 1}",
+                                 marker_color="rgba(201,74,74,0.28)", hovertemplate="%{y:,.0f}", yaxis="y2"))
         if not cur_s.empty:
             ad = adjusted_daily(cur_s)
-            fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9", hovertemplate="%{y:,.0f}",
-                                 opacity=0.85, yaxis="y2"))
+            fig.add_trace(go.Bar(x=ad.index, y=ad.values, name=f"Adj daily {sel_y}", marker_color="#8f9bb8",
+                                 hovertemplate="%{y:,.0f}", yaxis="y2"))
             c = cur_s.reindex(range(1, dim + 1))
             fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
                                      line=dict(color=NAVY, width=3), marker=dict(size=7), connectgaps=connect))
@@ -459,6 +465,7 @@ def render_visuals():
                         gridcolor="rgba(10,36,99,0.08)", color="#4a5578",
                         title=dict(text="Adj daily", font=dict(size=10, color="#7a86a8"))),
             xaxis=dict(anchor="y2"),
+            barmode="group", bargap=0.25, bargroupgap=0.05,
         )
         return fig
 
@@ -481,14 +488,16 @@ def render_visuals():
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
         return chart_layout(fig, height=480)
 
-    for comm in COMMS:
-        c1, c2 = st.columns(2)
-        with c1:
+    # row 1: same month across years, Arabica | Robusta
+    for col_, comm in zip(st.columns(len(COMMS)), COMMS):
+        with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>"
                         "<div class='card-desc'>Bands = last 5 years. Older years in legend.</div>",
                         unsafe_allow_html=True)
             st.plotly_chart(same_month_fig(comm), width="stretch")
-        with c2:
+    # row 2: last 4 months, Arabica | Robusta
+    for col_, comm in zip(st.columns(len(COMMS)), COMMS):
+        with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>"
                         "<div class='card-desc'>Cumulative by day of month.</div>", unsafe_allow_html=True)
             st.plotly_chart(last_months_fig(comm), width="stretch")

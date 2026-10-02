@@ -529,10 +529,9 @@ def _cal_values(raw: pd.DataFrame) -> dict:
 
 
 def _edit_grid(vals: dict, comm: str, years: list) -> pd.DataFrame:
-    """Rows = calendar years, columns Jan..Dec (text cells), plus a read-only calendar-year total."""
+    """Rows = calendar years (oldest first), columns Jan..Dec (text cells)."""
     g = pd.DataFrame({CAL[m - 1]: [_fmt0(vals.get((comm, y, m))) for y in years] for m in range(1, 13)},
                      index=[str(y) for y in years])
-    g["Total"] = [_fmt0(sum(vals.get((comm, y, m), 0) for m in range(1, 13)) or None) for y in years]   # read-only
     g.index.name = "Year"
     return g
 
@@ -587,17 +586,16 @@ def render_input(raw: pd.DataFrame, gbe: float):
     show_n = st.radio("Years shown", ["Recent", f"All ({FIRST_YEAR}-{LAST_YEAR})"], horizontal=True,
                       label_visibility="collapsed", key="mc_edit_years")
     hi_y = min(LAST_YEAR, last_data + 2)
-    yr_list = (list(range(LAST_YEAR, FIRST_YEAR - 1, -1)) if show_n.startswith("All")
-               else list(range(hi_y, max(FIRST_YEAR, last_data - 4) - 1, -1)))                  # newest first
+    yr_list = (list(range(FIRST_YEAR, LAST_YEAR + 1)) if show_n.startswith("All")
+               else list(range(max(FIRST_YEAR, last_data - 4), hi_y + 1)))                      # oldest first
 
     with st.container(border=True):
         st.markdown("<div class='card-title'>Monthly exports, bags</div>"
-                    "<div class='card-desc'>Calendar years, Jan to Dec, newest first, ready up to 2030. "
+                    "<div class='card-desc'>Calendar years, Jan to Dec, oldest first, ready up to 2030. "
                     + ("Click a cell, type, then Save. Blank removes the value."
                        if editable else "Read-only: add github_token in Secrets to edit.") + "</div>",
                     unsafe_allow_html=True)
         cfg = {CAL[m - 1]: st.column_config.TextColumn(CAL[m - 1], alignment="right", width=74) for m in range(1, 13)}
-        cfg["Total"] = st.column_config.TextColumn("Total", alignment="right", width=88, disabled=True)
         cfg["_index"] = st.column_config.TextColumn("Year", width=64)
         before, after, keys = {}, {}, []
         for comm in BASE:
@@ -606,8 +604,7 @@ def render_input(raw: pd.DataFrame, gbe: float):
             keys.append(key)
             st.markdown(f"<div class='grid-head'>{comm}</div>", unsafe_allow_html=True)
             before[comm] = g
-            shown = g.style.set_properties(subset=["Total"], **{"background-color": "#e9ecf2", "font-weight": "600"})
-            after[comm] = st.data_editor(shown, column_config=cfg, disabled=not editable, width="content",
+            after[comm] = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
                                          row_height=26, height=len(g) * 26 + 48, key=key)
         if editable:
             try:

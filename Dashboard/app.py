@@ -246,7 +246,7 @@ last_date = df.dropna(how="all").index.max()
 # Widgets that are not drawn in a run lose their value (e.g. the Daily controls while Monthly is open).
 # Keep a copy of the ones we care about and put it back before the widgets are created.
 KEEP = ["main_tab", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_comm", "mc_unit",
-        "mc_span", "mc_mode", "mc_view", "mc_roll", "mc_pj_method"]
+        "mc_span", "mc_page", "mc_view", "mc_roll", "mc_pj_method", "mc_edit_years"]
 for _k in KEEP:
     if _k not in st.session_state and f"_keep_{_k}" in st.session_state:
         st.session_state[_k] = st.session_state[f"_keep_{_k}"]

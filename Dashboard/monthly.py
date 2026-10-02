@@ -197,143 +197,205 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
-
-    with st.container(border=True):
-        a1, a2 = st.columns([2.6, 8], vertical_alignment="center")
-        mode = a1.radio("View", ["Visuals", "Tabular view", "Input"], horizontal=True, label_visibility="collapsed",
-                        key="mc_mode")
-        if mode == "Input":
-            a2.markdown("<div class='card-desc' style='margin:0'>Edit any month. Charts and tables use the same data.</div>",
-                        unsafe_allow_html=True)
-        else:
-            comm = a2.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key="mc_comm")
-            b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
-            unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key="mc_unit")
-            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
-                            key="mc_span")
-    if mode == "Input":
+    with st.container(key="nav"):                                    # same pill row as Daily; Entry first
+        page = st.radio("Section", ["Entry", "Charts", "Table", "Advanced Study"], horizontal=True,
+                        label_visibility="collapsed", key="mc_page")
+    if page == "Entry":
+        _controls(raw, gbe)                                          # the one place for Type / Unit / Years / Projection
         render_input(raw, gbe)
-        return
+    elif page == "Advanced Study":
+        st.markdown("<div class='card-desc' style='margin-top:12px'>Nothing here yet.</div>", unsafe_allow_html=True)
+    else:
+        _views(raw, gbe, page)
 
+
+def _context(raw, gbe, comm, unit, span):
+    """Everything the charts and the table need for one selection. None when there is no data."""
     factor, fmt = UNITS[unit]
     piv = pivot(raw, comm, factor, gbe)
     if piv.empty:
-        st.info("No data for this selection.")
-        return
-
+        return None
     years = piv.index.tolist()
     latest_cy = years[-1]
-    prev_cy = years[-2] if len(years) >= 2 else None
     valid = piv.loc[latest_cy].dropna().index
     common = int(valid.max()) if len(valid) else 12
-    ref = [y for y in years if y != latest_cy][-10:]                  # last 10 complete crop years
     ytd = piv[list(range(1, common + 1))].sum(axis=1, min_count=1)
-    yoy = ytd.pct_change() * 100
-    cut = f"{MONTHS[0]}–{MONTHS[common - 1]}"
     n_show = {"Last 5": 5, "Last 10": 10, "All": len(years)}[span]
-    shown = years[-n_show:]
-    sc = f"{comm} · {unit}" + (f" · Soluble x{gbe:g} GBE" if "Soluble" in TYPES[comm] and len(TYPES[comm]) > 1 else "")
-    with b3:
-        proj = _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt)
+    parts = {}
+    if len(TYPES[comm]) > 1:                                       # breakup of a combination, shown in Rolling
+        for c in TYPES[comm]:
+            pc = pivot(raw, c, factor, 1.0) * (gbe if c == "Soluble" else 1.0)
+            parts[c] = pc.reindex(piv.index).where(piv.notna())
+    return dict(parts=parts, gbe=gbe, 
+        comm=comm, unit=unit, span=span, fmt=fmt, piv=piv, years=years, latest_cy=latest_cy,
+        prev_cy=years[-2] if len(years) >= 2 else None, common=common,
+        ref=[y for y in years if y != latest_cy][-10:],              # last 10 complete crop years
+        ytd=ytd, yoy=ytd.pct_change(fill_method=None) * 100, cut=f"{MONTHS[0]}–{MONTHS[common - 1]}", shown=years[-n_show:],
+        sc=f"{comm} · {unit}" + (f" · Soluble x{gbe:g} GBE" if "Soluble" in TYPES[comm] and len(TYPES[comm]) > 1 else ""),
+        sig=(comm, unit, latest_cy, common))
 
-    ytd_now = ytd.get(latest_cy)
-    yo = yoy.get(latest_cy)
-    line = [f"Crop year <b>{latest_cy}</b> to {MONTHS[common - 1]}", f"YTD <b>{format(ytd_now, fmt)}</b>"]
+
+def _controls(raw, gbe):
+    """Type / Unit / Years / Projection, drawn once here (Entry tab) and used by the Charts and Table tabs."""
+    with st.container(border=True):
+        st.markdown("<div class='card-title'>Controls</div>"
+                    "<div class='card-desc'>These choices drive the Charts and Table tabs.</div>", unsafe_allow_html=True)
+        comm = st.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key="mc_comm")
+        b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
+        unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key="mc_unit")
+        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
+                        key="mc_span")
+        ctx = _context(raw, gbe, comm, unit, span)
+        if ctx is None:
+            st.session_state["mc_proj"] = {}
+            return
+        with b3:
+            proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"], unit, ctx["fmt"])
+    st.session_state["mc_proj"] = {"sig": ctx["sig"], "vals": proj}                 # read by the Charts tab
+
+
+def _views(raw, gbe, page):
+    comm = st.session_state.get("mc_comm", COMMS[0])
+    unit = st.session_state.get("mc_unit", list(UNITS)[0])
+    span = st.session_state.get("mc_span", "Last 5")
+    ctx = _context(raw, gbe, comm, unit, span)
+    if ctx is None:
+        st.info("No data for this selection.")
+        return
+    store = st.session_state.get("mc_proj") or {}
+    proj = store.get("vals", {}) if store.get("sig") == ctx["sig"] else {}
+    ytd_now, yo, fmt = ctx["ytd"].get(ctx["latest_cy"]), ctx["yoy"].get(ctx["latest_cy"]), ctx["fmt"]
+    line = [f"Crop year <b>{ctx['latest_cy']}</b> to {MONTHS[ctx['common'] - 1]}", f"YTD <b>{format(ytd_now, fmt)}</b>"]
     if pd.notna(yo):
         line.append(f"{yo:+.1f}% YoY")
     if proj:
         line.append(f"Projected full year <b>{format(ytd_now + sum(proj.values()), fmt)}</b>")
-    st.markdown(f"<div class='card-desc' style='margin:6px 0 2px'>{' · '.join(line)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card-desc' style='margin:8px 0 2px'>{ctx['comm']} · {ctx['unit']} · {ctx['span']} "
+                f"&nbsp;|&nbsp; {' · '.join(line)} &nbsp;|&nbsp; <i>change Type, Unit, Years and Projection in the "
+                "Entry tab</i></div>", unsafe_allow_html=True)
+    if page == "Charts":
+        _charts(ctx, proj)
+    else:
+        _table(ctx)
 
+
+def _charts(ctx, proj):
+    piv, years, latest_cy, prev_cy, common, ref, ytd, yoy, cut, shown, sc, unit, fmt = (
+        ctx[k_] for k_ in ("piv", "years", "latest_cy", "prev_cy", "common", "ref", "ytd", "yoy", "cut", "shown",
+                           "sc", "unit", "fmt"))
     styles = year_styles(sorted(set(shown) | set(years[-3:])))
     ht = f"%{{y:{fmt}}} {unit}"
     k = "mc"
+    gbe_txt = f"{ctx['gbe']:g}"
 
-    if mode == "Visuals":
-        l, r = st.columns(2, gap="medium")
-        with l:
-            h, w = st.columns([1.4, 1], vertical_alignment="bottom")
-            with h:
-                heading("Monthly exports", f"{sc} · band = L{len(ref)}Y range")
-            view = w.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True, key=f"{k}_view",
-                           label_visibility="collapsed")
-            plot_years = shown if view == "All years" else [y for y in shown if y in (latest_cy, prev_cy)]
-            fig = go.Figure()
-            _band(fig, piv, ref, fmt)
-            for y in plot_years:
+    l, r = st.columns(2, gap="medium")
+    with l:
+        h, w = st.columns([1.4, 1], vertical_alignment="bottom")
+        with h:
+            heading("Monthly exports", f"{sc} · bands = L{len(ref)}Y min-max and percentiles")
+        view = w.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True, key=f"{k}_view",
+                       label_visibility="collapsed")
+        plot_years = shown if view == "All years" else [y for y in shown if y in (latest_cy, prev_cy)]
+        fig = go.Figure()
+        _band(fig, piv.loc[ref], len(ref), fmt) if len(ref) >= 2 else None
+        for y in plot_years:
+            c, wd = styles[y]
+            s = piv.loc[y].dropna()
+            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
+                                     line=dict(color=c, width=wd), hovertemplate=ht))
+        if proj and latest_cy in shown:
+            xs = [MONTHS[common - 1]] + [MONTHS[m - 1] for m in proj]
+            fig.add_trace(_proj_trace(xs, [piv.loc[latest_cy, common]] + list(proj.values()), latest_cy, ht))
+        show(style(fig, height=500, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
+
+    with r:
+        h2, w2 = st.columns([1.4, 1], vertical_alignment="bottom")
+        with h2:
+            heading("Cumulative exports", f"{sc} · bands = L{len(ref)}Y cumulative")
+        cview = w2.radio("Cumulative view", ["Last 4", "All"], horizontal=True, key=f"{k}_cumview",
+                         label_visibility="collapsed")
+        fig = go.Figure()
+        if len(ref) >= 2:
+            _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt)
+        cum_years = years[-4:] if cview == "Last 4" else years
+        older = [y for y in cum_years if y not in (latest_cy, prev_cy)]
+        for y in cum_years:
+            if y in (latest_cy, prev_cy):
                 c, wd = styles[y]
-                s = piv.loc[y].dropna()
-                fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
-                                         line=dict(color=c, width=wd), hovertemplate=ht))
-            if proj and latest_cy in shown:
-                xs = [MONTHS[common - 1]] + [MONTHS[m - 1] for m in proj]
-                fig.add_trace(_proj_trace(xs, [piv.loc[latest_cy, common]] + list(proj.values()), latest_cy, ht))
-            show(style(fig, height=360, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
+            else:
+                c, wd = OLDER[older.index(y) % len(OLDER)], 1.3
+            s = piv.loc[y].dropna().cumsum()
+            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
+                                     line=dict(color=c, width=wd), hovertemplate=ht))
+        if proj:
+            run = float(ytd[latest_cy])
+            xs, ys = [MONTHS[common - 1]], [run]
+            for m, v in proj.items():
+                run += v
+                xs.append(MONTHS[m - 1])
+                ys.append(run)
+            fig.add_trace(_proj_trace(xs, ys, latest_cy, ht))
+        show(style(fig, height=500, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
 
-        with r:
-            heading("Cumulative exports", f"{sc} · last 5 CY vs L{len(ref)}Y avg")
-            fig = go.Figure()
-            if len(ref) >= 2:
-                avg_cum = piv.loc[ref].mean().cumsum()
-                fig.add_trace(go.Scatter(x=MONTHS, y=avg_cum.values, name=f"Avg L{len(ref)}Y", mode="lines",
-                                         line=dict(color=AXIS, width=1.5, dash="dot"), hovertemplate=ht))
-            light = ["#dde2ec", "#c9d0e0", "#b3bdd4"]
-            last5 = years[-5:]
-            for i, y in enumerate(last5):
-                c, wd = styles[y] if y in (latest_cy, prev_cy) else (light[-(len(last5) - 2) + i], 1.4)
-                s = piv.loc[y].dropna().cumsum()
-                fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
-                                         line=dict(color=c, width=wd), hovertemplate=ht))
-            if proj:
-                run = float(ytd[latest_cy])
-                xs, ys = [MONTHS[common - 1]], [run]
-                for m, v in proj.items():
-                    run += v
-                    xs.append(MONTHS[m - 1])
-                    ys.append(run)
-                fig.add_trace(_proj_trace(xs, ys, latest_cy, ht))
-            show(style(fig, height=360, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
-
-        l, r = st.columns(2, gap="medium")
-        with l:
-            heading(f"YTD {cut}", f"{sc} · label = YoY")
-            yy = [y for y in years if y in shown or y == latest_cy]
-            colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
-            labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
-            fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
-                                   textfont=dict(size=11, color=AXIS), cliponaxis=False,
-                                   hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-            show(style(fig, height=300, legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")), key=f"{k}_ytd")
-        with r:
-            h, w = st.columns([1.6, 1], vertical_alignment="bottom")
-            with h:
-                heading("Rolling exports", f"{sc} · trailing sum")
-            seed(f"{k}_roll", "12m")
-            win = w.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
-                          label_visibility="collapsed")
-            stack = piv.stack().dropna()
+    l, r = st.columns(2, gap="medium")
+    with l:
+        heading(f"YTD {cut}", f"{sc} · label = YoY")
+        yy = [y for y in years if y in shown or y == latest_cy]
+        colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
+        labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
+        fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
+                               textfont=dict(size=11, color=AXIS), cliponaxis=False,
+                               hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+        show(style(fig, height=300, legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")), key=f"{k}_ytd")
+    with r:
+        h, w = st.columns([1.6, 1], vertical_alignment="bottom")
+        with h:
+            heading("Rolling exports", f"{sc} · trailing sum")
+        seed(f"{k}_roll", "12m")
+        win = w.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
+                      label_visibility="collapsed")
+        def rolling(pv):
+            stack = pv.stack().dropna()
             mon = pd.Series(stack.values, index=[month_dates(cy, int(cm)) for cy, cm in stack.index]).sort_index()
-            roll = mon.rolling(int(win[:-1])).sum().dropna()
-            fig = go.Figure(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
-                                       fill="tozeroy", fillcolor=rgba(TEAL, 0.08),
-                                       hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-            show(style(fig, height=300, legend=None, fmt=fmt), key=f"{k}_rolling")
-    else:
-        heading("Monthly exports", f"{sc} · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
-        _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt)
+            return mon.rolling(int(win[:-1])).sum().dropna()
+        parts = ctx["parts"]
+        roll = rolling(piv)
+        fig = go.Figure(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
+                                   fill="tozeroy", fillcolor=rgba(TEAL, 0.08), name="Combined" if parts else "Rolling",
+                                   hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+        pal = {"Arabica": NAVY, "Robusta": AMBER, "Soluble": GREEN}
+        for c, pv in parts.items():                                # breakup: one line per type in the combination
+            rc = rolling(pv)
+            nm = f"{c} (x{gbe_txt})" if c == "Soluble" else c
+            fig.add_trace(go.Scatter(x=rc.index, y=rc.values, mode="lines", name=nm, line=dict(color=pal[c], width=1.8),
+                                     hovertemplate=f"{nm} %{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+        show(style(fig, height=300 if not parts else 340, legend="bottom" if parts else None, fmt=fmt),
+             key=f"{k}_rolling")
+
+
+def _table(ctx):
+    piv, years, latest_cy, common, ref, ytd, yoy, cut, sc, fmt = (
+        ctx[k_] for k_ in ("piv", "years", "latest_cy", "common", "ref", "ytd", "yoy", "cut", "sc", "fmt"))
+    heading("Monthly exports", f"{sc} · all crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
+    _heatmap(piv, years, latest_cy, common, ytd, yoy, ref, fmt, cut)
+
+
 
 
 # ── Pieces ────────────────────────────────────────────────────────────────────
-def _band(fig, piv, ref, fmt):
-    if len(ref) < 2:
+def _band(fig, b, n, fmt):
+    """b = DataFrame (reference years x crop months). Light teal bands: min-max, 10th-90th and 25th-75th percentile."""
+    if len(b) < 2:
         return
-    b = piv.loc[ref]
-    fig.add_trace(go.Scatter(x=MONTHS, y=b.max().values, name="Max", mode="lines", showlegend=False,
-                             line=dict(width=0), hovertemplate=f"%{{y:{fmt}}}"))
-    fig.add_trace(go.Scatter(x=MONTHS, y=b.min().values, name=f"Min–Max L{len(ref)}Y", mode="lines",
-                             line=dict(width=0), fill="tonexty", fillcolor=rgba(NAVY, 0.07),
-                             hovertemplate=f"%{{y:{fmt}}}"))
-    fig.add_trace(go.Scatter(x=MONTHS, y=b.mean().values, name=f"Avg L{len(ref)}Y", mode="lines",
+    x = MONTHS
+    for lo, hi, a, name in [(b.min(), b.max(), 0.08, f"Min–Max L{n}Y"),
+                            (b.quantile(0.10), b.quantile(0.90), 0.16, "10th–90th pct"),
+                            (b.quantile(0.25), b.quantile(0.75), 0.30, "25th–75th pct")]:
+        fig.add_trace(go.Scatter(x=x, y=hi.values, mode="lines", showlegend=False, line=dict(width=0),
+                                 hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=x, y=lo.values, name=name, mode="lines", line=dict(width=0), fill="tonexty",
+                                 fillcolor=rgba(TEAL, a), hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=x, y=b.mean().values, name=f"Avg L{n}Y", mode="lines",
                              line=dict(color=AXIS, width=1.5, dash="dot"), hovertemplate=f"%{{y:{fmt}}}"))
 
 
@@ -397,24 +459,30 @@ def _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt):
     return out
 
 
-def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt):
-    hdr = MONTHS + ["Total", "YTD", "YoY"]
+def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt, cut):
+    hdr = MONTHS + ["Total", "Total YoY", f"YTD ({cut})", "YTD YoY"]
     body = piv.loc[[y for y in shown if y in piv.index]]
     vals = body.to_numpy(dtype=float)
     vals = vals[~np.isnan(vals) & (vals > 0)]
     lo, hi = (float(vals.min()), float(vals.max())) if vals.size else (0.0, 1.0)
+    tot_all = piv.sum(axis=1, min_count=1)
+    if common < 12:
+        tot_all.loc[latest_cy] = np.nan                                  # the running year has no full-year total yet
+    tyoy = tot_all.pct_change(fill_method=None) * 100
 
     def month_cells(s, heat=True):
         return [t_cell("") if pd.isna(s[m]) or s[m] == 0
                 else t_cell(format(s[m], fmt), bg=seq_color(s[m], lo, hi) if heat else None) for m in range(1, 13)]
 
+    def yoy_cell(v):
+        return t_cell("" if pd.isna(v) else f"{v:+.1f}%", "up" if pd.notna(v) and v >= 0 else "down")
+
     rows = []
     for y in body.index:
         s = body.loc[y]
         total = "" if y == latest_cy and common < 12 else format(s.sum(), fmt)
-        yv = yoy.get(y, np.nan)
-        cells = month_cells(s) + [t_cell(total, "x"), t_cell(format(ytd[y], fmt), "x"),
-                                  t_cell("" if pd.isna(yv) else f"{yv:+.1f}%", "up" if yv >= 0 else "down")]
+        cells = month_cells(s) + [t_cell(total, "x"), yoy_cell(tyoy.get(y, np.nan)),
+                                  t_cell(format(ytd[y], fmt), "x"), yoy_cell(yoy.get(y, np.nan))]
         rows.append(t_row(y, cells))
         if y == latest_cy and len(ref) >= 2:
             avg = piv.loc[ref].mean()
@@ -422,7 +490,7 @@ def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt):
                    for m in range(1, 13)]
             lim = max([abs(v) for v in dev if pd.notna(v)] or [20])
             dc = [t_cell("") if pd.isna(v) else t_cell(f"{v:+.0f}%", bg=div_color(v, lim)) for v in dev]
-            rows.append(t_row(f"vs Avg L{len(ref)}Y", dc + [t_cell("", "x")] * 2 + [t_cell("")], "ref"))
+            rows.append(t_row(f"vs Avg L{len(ref)}Y", dc + [t_cell("", "x")] * 3 + [t_cell("")], "ref"))
 
     if len(ref) >= 2:
         rows.append(t_sep(len(hdr) + 1))
@@ -430,8 +498,8 @@ def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt):
         tot, ytd_r = rb.sum(axis=1), ytd[ref]
         for name, agg in [("Min", "min"), ("Avg", "mean"), ("Max", "max")]:
             cells = month_cells(getattr(rb, agg)(), heat=False) + [
-                t_cell(format(getattr(tot, agg)(), fmt), "x"), t_cell(format(getattr(ytd_r, agg)(), fmt), "x"),
-                t_cell("")]
+                t_cell(format(getattr(tot, agg)(), fmt), "x"), t_cell(""),
+                t_cell(format(getattr(ytd_r, agg)(), fmt), "x"), t_cell("")]
             rows.append(t_row(f"{name} L{len(ref)}Y", cells, "ref"))
 
     t_render(hdr, rows, corner="Crop year")
@@ -451,43 +519,59 @@ def _fmt0(v):
     return "" if v is None or pd.isna(v) else f"{v:,.0f}"
 
 
-def _next_cy(cy: str) -> str:
-    a, b = int(cy[:2]), int(cy[3:])
-    return f"{(a + 1) % 100:02d}/{(b + 1) % 100:02d}"
+CAL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+LAST_YEAR = 2030                                                   # the input matrix runs up to here
+FIRST_YEAR = 2011                                                  # data starts Jul 2011
 
 
-def _edit_grid(raw: pd.DataFrame, comm: str, crop_years: list) -> pd.DataFrame:
-    d = raw[raw["commodity"] == comm].pivot_table(index="crop_year", columns="cm", values="bags", aggfunc="sum")
-    d = d.reindex(index=crop_years, columns=range(1, 13))
-    g = pd.DataFrame({MONTHS[m - 1]: [_fmt0(d.loc[cy, m]) for cy in crop_years] for m in range(1, 13)}, index=crop_years)
-    g["Total"] = [_fmt0(d.loc[cy].sum()) if d.loc[cy].notna().any() else "" for cy in crop_years]     # read-only
-    g.index.name = "Crop year"
+def _to_crop(y: int, mo: int):
+    """Calendar (year, month 1-12) -> (crop year label, crop month 1-12). Jul 2026 -> ('26/27', 1)."""
+    if mo >= 7:
+        return f"{y % 100:02d}/{(y + 1) % 100:02d}", mo - 6
+    return f"{(y - 1) % 100:02d}/{y % 100:02d}", mo + 6
+
+
+def _cal_values(raw: pd.DataFrame) -> dict:
+    """{(commodity, year, month): bags} in calendar terms."""
+    out = {}
+    for c, cy, cm, v in raw[["commodity", "crop_year", "cm", "bags"]].itertuples(index=False):
+        d = month_dates(cy, int(cm))
+        out[(c, d.year, d.month)] = float(v)
+    return out
+
+
+def _edit_grid(vals: dict, comm: str, years: list) -> pd.DataFrame:
+    """Rows = calendar years, columns Jan..Dec (text cells), plus a read-only calendar-year total."""
+    g = pd.DataFrame({CAL[m - 1]: [_fmt0(vals.get((comm, y, m))) for y in years] for m in range(1, 13)},
+                     index=[str(y) for y in years])
+    g["Total"] = [_fmt0(sum(vals.get((comm, y, m), 0) for m in range(1, 13)) or None) for y in years]   # read-only
+    g.index.name = "Year"
     return g
 
 
-def _changes(raw, comm, before: pd.DataFrame, after: pd.DataFrame) -> list:
-    """[(comm, crop year, crop month, old, new)] for every edited cell. Raises ValueError on non-numbers."""
+def _changes(comm, before: pd.DataFrame, after: pd.DataFrame) -> list:
+    """[(comm, year, month, old, new)] for every edited cell. Raises ValueError on non-numbers."""
     out = []
-    for cy in before.index:
+    for y in before.index:
         for m in range(1, 13):
-            col = MONTHS[m - 1]
-            old, new = _num(before.loc[cy, col]), _num(after.loc[cy, col])
+            old, new = _num(before.loc[y, CAL[m - 1]]), _num(after.loc[y, CAL[m - 1]])
             if old != new:
-                out.append((comm, cy, m, old, new))
+                out.append((comm, int(y), m, old, new))
     return out
 
 
 def _save_exports(changes: list, who: str = "dashboard"):
-    lines = [f"{c} {cy} {MONTHS[m - 1]}: {_fmt0(o) or '-'} -> {_fmt0(n) or '-'}" for c, cy, m, o, n in changes]
+    lines = [f"{c} {CAL[m - 1]} {y}: {_fmt0(o) or '-'} -> {_fmt0(n) or '-'}" for c, y, m, o, n in changes]
     msg = f"Monthly exports | {len(changes)} change(s)\n\n" + "\n".join(lines)
 
     def apply(text):
         d = pd.read_csv(io.StringIO(text))
-        for c, cy, m, o, n in changes:
-            hit = (d["commodity"] == c) & (d["crop_year"] == cy) & (d["cm"] == m)
+        for c, y, m, o, n in changes:
+            cy, cm = _to_crop(y, m)
+            hit = (d["commodity"] == c) & (d["crop_year"] == cy) & (d["cm"] == cm)
             d = d[~hit]
             if n is not None:
-                d = pd.concat([d, pd.DataFrame([{"commodity": c, "crop_year": cy, "cm": m, "bags": n}])])
+                d = pd.concat([d, pd.DataFrame([{"commodity": c, "crop_year": cy, "cm": cm, "bags": n}])])
         d["_o"] = d["commodity"].map({c: i for i, c in enumerate(BASE)})
         d = d.sort_values(["_o", "crop_year", "cm"]).drop(columns="_o")
         d["bags"] = d["bags"].round().astype("int64")
@@ -510,24 +594,27 @@ def render_input(raw: pd.DataFrame, gbe: float):
     if st.session_state.get("mc_flash"):
         st.toast(st.session_state.pop("mc_flash"))
     editable = gh.enabled()
-    all_cy = sorted(raw["crop_year"].unique())
-    nxt = _next_cy(all_cy[-1])
-    show_n = st.radio("Crop years shown", ["Last 6", "All"], horizontal=True, label_visibility="collapsed", key="mc_edit_n")
-    cy_list = (all_cy + [nxt])[-(7 if show_n == "Last 6" else len(all_cy) + 1):][::-1]          # newest first
+    vals = _cal_values(raw)
+    last_data = max(y for (_, y, _) in vals) if vals else 2026
+    show_n = st.radio("Years shown", ["Recent", f"All ({FIRST_YEAR}-{LAST_YEAR})"], horizontal=True,
+                      label_visibility="collapsed", key="mc_edit_years")
+    hi_y = min(LAST_YEAR, last_data + 2)
+    yr_list = (list(range(LAST_YEAR, FIRST_YEAR - 1, -1)) if show_n.startswith("All")
+               else list(range(hi_y, max(FIRST_YEAR, last_data - 4) - 1, -1)))                  # newest first
 
     with st.container(border=True):
         st.markdown("<div class='card-title'>Monthly exports, bags</div>"
-                    "<div class='card-desc'>Crop years Jul to Jun, newest first (the next crop year is ready at the top). "
+                    "<div class='card-desc'>Calendar years, Jan to Dec, newest first, ready up to 2030. "
                     + ("Click a cell, type, then Save. Blank removes the value."
                        if editable else "Read-only: add github_token in Secrets to edit.") + "</div>",
                     unsafe_allow_html=True)
-        cfg = {MONTHS[m - 1]: st.column_config.TextColumn(MONTHS[m - 1], alignment="right", width=74) for m in range(1, 13)}
+        cfg = {CAL[m - 1]: st.column_config.TextColumn(CAL[m - 1], alignment="right", width=74) for m in range(1, 13)}
         cfg["Total"] = st.column_config.TextColumn("Total", alignment="right", width=88, disabled=True)
-        cfg["_index"] = st.column_config.TextColumn("Crop year", width=92)
+        cfg["_index"] = st.column_config.TextColumn("Year", width=64)
         before, after, keys = {}, {}, []
         for comm in BASE:
-            g = _edit_grid(raw, comm, cy_list)
-            key = f"mc_edit_{comm}_{show_n}"
+            g = _edit_grid(vals, comm, yr_list)
+            key = f"mc_edit_{comm}_{show_n[:3]}"
             keys.append(key)
             st.markdown(f"<div class='grid-head'>{comm}</div>", unsafe_allow_html=True)
             before[comm] = g
@@ -536,7 +623,7 @@ def render_input(raw: pd.DataFrame, gbe: float):
                                          row_height=26, height=len(g) * 26 + 48, key=key)
         if editable:
             try:
-                changes = [c for comm in BASE for c in _changes(raw, comm, before[comm], after[comm])]
+                changes = [c for comm in BASE for c in _changes(comm, before[comm], after[comm])]
             except ValueError:
                 st.error("Numbers only (commas are fine).")
                 changes = []
@@ -556,10 +643,10 @@ def render_input(raw: pd.DataFrame, gbe: float):
                                unsafe_allow_html=True)
             if save:
                 notes = []
-                for c, cy, m, o, n in changes:                       # extra-zero check against the type's biggest month
+                for c, y, m, o, n in changes:                        # extra-zero check against the type's biggest month
                     cap = raw.loc[raw["commodity"] == c, "bags"].max()
                     if n is not None and cap and n > 1.6 * cap:
-                        notes.append(f"{c} {cy} {MONTHS[m - 1]} {n:,.0f} is far above anything seen (max {cap:,.0f}). Extra zero?")
+                        notes.append(f"{c} {CAL[m - 1]} {y} {n:,.0f} is far above anything seen (max {cap:,.0f}). Extra zero?")
                 if not notes:
                     _do_save(changes, keys)
                 st.session_state["mc_pending"] = notes

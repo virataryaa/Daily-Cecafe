@@ -313,7 +313,7 @@ def grid_changes(before: pd.DataFrame, after: pd.DataFrame):
     out = {}
     for c in ALL:
         for i, (a, b) in enumerate(zip(before[c], after[c])):
-            a, b = parse_num(a or ""), parse_num(b or "")
+            a, b = parse_num(a), parse_num(b)
             if a != b:
                 out.setdefault(pd.Timestamp(sel_y, sel_m, i + 1), {})[c] = b
     return out
@@ -598,7 +598,11 @@ def save_history():
 
 
 def parse_num(txt):
-    txt = (txt or "").replace(",", "").strip()
+    if txt is None or (isinstance(txt, float) and pd.isna(txt)):     # a cleared grid cell comes back as None/NaN
+        return None
+    if isinstance(txt, (int, float)):
+        return float(txt)
+    txt = str(txt).replace(",", "").strip()
     return float(txt) if txt else None
 
 

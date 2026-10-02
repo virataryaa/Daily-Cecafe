@@ -63,6 +63,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 
 .card-desc { color: #5a6688; font-size: 0.82rem; margin-top: -6px; margin-bottom: 10px; }
 .chart-head { color: #0a2463; font-weight: 600; font-size: 0.95rem; margin-bottom: 0; }
+.grid-head { color: #0a2463; font-weight: 600; font-size: 0.85rem; padding: 3px 8px; background: #e6e9f2; border-radius: 6px 6px 0 0; margin-bottom: 2px; display: inline-block; }
 
 /* Sidebar title + small stats */
 .sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.5rem; font-weight: 600; color: #0a2463; margin-bottom: 2px; }
@@ -252,7 +253,8 @@ def render_table():
             rows_html += "".join(cell(grp[c], early=early) for c in cols) + cell(total(list(grp.values())), True, early=early)
         rows_html += "</tr>"
 
-    st.markdown(f"<div class='card-desc'>Daily registrations, {MON}.</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='chart-head' style='margin-top:18px'>Daily change and linear month-end, {MON}</div>"
+                "<div class='card-desc'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
     if not days:
         st.info(f"No data for {MON} yet.")
     else:
@@ -262,44 +264,66 @@ def render_table():
             f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
             f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th></tr>"
             "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3 + "</tr>"
-            + rows_html + "</table><div class='tab-note'>Grey = day 1-10, too early to project.</div>",
+            + rows_html + "</table>",
             unsafe_allow_html=True)
     st.write("")
 
 
-def season_grid(comm):
-    """Same month across years, cumulative by day (blank = Cecafe skipped), plus Adj daily for the selected year."""
+def history_table_html(comm):
+    """Read-only: same month across years, cumulative by day (blank = Cecafe skipped), Adj daily for the selected year."""
     s = df[comm]
-    years = sorted({y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty} | {sel_y})
+    years = [y for y in range(min_year, sel_y + 1) if not month_series(s, y, sel_m).empty]
+    if not years:
+        return ""
+    ser = {y: month_series(s, y, sel_m) for y in years}
+    ad = adjusted_daily(ser[sel_y]) if sel_y in ser else pd.Series(dtype=float)
+    body = ""
+    for d_ in range(1, month_dim(sel_y, sel_m) + 1):
+        body += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
+        body += "".join(f"<td class='{'b' if y == sel_y else ''}'>{fmt(ser[y][d_]) if d_ in ser[y].index else ''}</td>"
+                        for y in years)
+        body += f"<td>{fmt(ad[d_]) if d_ in ad.index else ''}</td></tr>"
+    return (f"<div class='grid-head'>{comm}</div><table class='dtab'><tr class='sub'><th>Date</th>"
+            + "".join(f"<th>{y}</th>" for y in years) + "<th>Adj daily</th></tr>" + body + "</table>")
+
+
+def render_history_tables():
+    st.markdown(f"<div class='chart-head' style='margin-top:18px'>{MONTHS[sel_m - 1]} by year, cumulative MTD</div>"
+                "<div class='card-desc'>Blank = Cecafe skipped the day. Adj daily = skipped days split equally.</div>",
+                unsafe_allow_html=True)
+    comms = [c for c in ALL if not df[c].dropna().empty]
+    widths = [sum(not month_series(df[c], y, sel_m).empty for y in range(min_year, sel_y + 1)) + 2 for c in comms]
+    cs = st.columns(widths, gap="small")
+    for col_, comm in zip(cs, comms):
+        col_.markdown(f"<div style='overflow-x:auto'>{history_table_html(comm)}</div>", unsafe_allow_html=True)
+
+
+def entry_grid():
+    """Selected month only: one row per day, one column per type (text cells: blank stays blank, commas allowed)."""
     dim = month_dim(sel_y, sel_m)
-    days = [f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)]
-    g = pd.DataFrame(index=days)
-    for y in years:
-        m = month_series(s, y, sel_m)
-        g[str(y)] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
-    ad = adjusted_daily(month_series(s, sel_y, sel_m))
-    g["Adj daily"] = [fmt(ad[d]) if d in ad.index else "" for d in range(1, dim + 1)]
-    return g                                                    # text cells: blanks stay blank, commas allowed
+    g = pd.DataFrame(index=[f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)])
+    for c in ALL:
+        m = month_series(df[c], sel_y, sel_m)
+        g[c] = [fmt(m[d]) if d in m.index else "" for d in range(1, dim + 1)]
+    return g
 
 
-def grid_changes(comm, before: pd.DataFrame, after: pd.DataFrame):
-    """{date: value} for every cell the user changed in the year columns. Raises ValueError on non-numbers."""
+def grid_changes(before: pd.DataFrame, after: pd.DataFrame):
+    """{date: {type: value}} for every changed cell. Raises ValueError on non-numbers."""
     out = {}
-    for col in [c for c in before.columns if c.isdigit()]:
-        for i, (a, b) in enumerate(zip(before[col], after[col])):
+    for c in ALL:
+        for i, (a, b) in enumerate(zip(before[c], after[c])):
             a, b = parse_num(a or ""), parse_num(b or "")
-            if a == b:
-                continue
-            try:
-                d0 = pd.Timestamp(int(col), sel_m, i + 1)
-            except ValueError:                                  # e.g. 29-Feb in a non-leap year
-                continue
-            out[d0] = b
+            if a != b:
+                out.setdefault(pd.Timestamp(sel_y, sel_m, i + 1), {})[c] = b
     return out
 
 
+GRID_KEY = "entry_grid"
+
+
 def save_grid(changes):
-    """changes: {date: {comm: value}} -> one commit per date, other columns of that row kept."""
+    """changes: {date: {type: value}} -> one commit per date, other columns of that row kept."""
     with st.spinner("Saving..."):
         try:
             for d0, upd in sorted(changes.items()):
@@ -312,45 +336,35 @@ def save_grid(changes):
             st.error(f"GitHub save failed: {ex}")
             return
     st.session_state.pop("pending_grid", None)
-    for comm in COMMS:
-        st.session_state.pop(f"grid_{comm}_{sel_y}_{sel_m}", None)
-    st.session_state["flash"] = f"Saved {len(changes)} date(s) from the table."
+    st.session_state.pop(f"{GRID_KEY}_{sel_y}_{sel_m}", None)
+    st.session_state["flash"] = f"Saved {len(changes)} date(s)."
     st.rerun()
 
 
-def render_season_tables():
+def render_entry_grid():
+    if st.session_state.get("flash"):
+        st.success(st.session_state.pop("flash"))
     editable = entry_enabled()
-    st.markdown(f"<div class='card-desc' style='margin-top:14px'>{MONTHS[sel_m - 1]} across years, cumulative. "
-                "Blank = Cecafe skipped the day." + (" Click a cell to edit, then Save table." if editable else "")
-                + "</div>", unsafe_allow_html=True)
-    cs = st.columns(len(COMMS))
-    before, after = {}, {}
-    for col_, comm in zip(cs, COMMS):
-        g = season_grid(comm)
-        cfg = {c: st.column_config.TextColumn(c, alignment="right") for c in g.columns}
-        cfg["Adj daily"] = st.column_config.TextColumn("Adj daily", disabled=True, alignment="right")
-        with col_:
-            st.markdown(f"<div class='chart-head'>{comm} seasonality</div>", unsafe_allow_html=True)
-            after[comm] = st.data_editor(g, column_config=cfg, disabled=not editable, width="stretch",
-                                         row_height=24, height=len(g) * 24 + 40,
-                                         key=f"grid_{comm}_{sel_y}_{sel_m}")
-        before[comm] = g
+    st.markdown(f"<div class='chart-head'>Entry, {MON}</div><div class='card-desc'>Cumulative MTD from Cecafe. "
+                + ("Click a cell to type, then Save. Blank = not shown." if editable
+                   else "Read-only: add github_token in Secrets to edit.") + "</div>", unsafe_allow_html=True)
+    g = entry_grid()
+    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=82) for c in ALL}
+    cfg["_index"] = st.column_config.TextColumn("", width=54)
+    key = f"{GRID_KEY}_{sel_y}_{sel_m}"
+    after = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
+                           row_height=22, height=len(g) * 22 + 38, key=key)
     if not editable:
         return
-
-    changes = {}
     try:
-        for comm in COMMS:
-            for d0, v in grid_changes(comm, before[comm], after[comm]).items():
-                changes.setdefault(d0, {})[comm] = v
+        changes = grid_changes(g, after)
     except ValueError:
-        st.error("Numbers only in the table (commas are fine).")
+        st.error("Numbers only (commas are fine).")
         return
-    bc = st.columns([0.8, 0.8, 5], vertical_alignment="center")
-    save = bc[0].button("Save table", type="primary", disabled=not changes, width="stretch")
-    if bc[1].button("Undo edits", disabled=not changes, width="stretch"):
-        for comm in COMMS:
-            st.session_state.pop(f"grid_{comm}_{sel_y}_{sel_m}", None)
+    bc = st.columns([1, 1, 1.4], vertical_alignment="center")
+    save = bc[0].button("Save", type="primary", disabled=not changes, width="stretch")
+    if bc[1].button("Undo", disabled=not changes, width="stretch"):
+        st.session_state.pop(key, None)
         st.session_state.pop("pending_grid", None)
         st.rerun()
     if changes:
@@ -659,71 +673,6 @@ def commit_change(change, msg):
     return info
 
 
-def do_save(d0, vals):
-    msg = f"Entry {d0:%Y-%m-%d} via dashboard | " + vals_text(vals, " | ")
-    with st.spinner("Saving..."):
-        try:
-            existed = commit_change(lambda f: apply_entry(f, d0, vals), msg)
-        except (GitHubError, requests.RequestException) as ex:
-            st.error(f"GitHub save failed: {ex}")
-            return
-    st.session_state.pop("pending_save", None)
-    st.session_state["flash"] = f"{'Overridden' if existed else 'Saved'} {d0:%d %b %Y}: {vals_text(vals)}."
-    st.rerun()
-
-
-def render_entry():
-    if st.session_state.get("flash"):
-        st.success(st.session_state.pop("flash"))
-    if not entry_enabled():
-        st.info("Entry is off: add github_token in Streamlit Secrets.")
-        return
-    st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
-                "Blank = not shown.</div>", unsafe_allow_html=True)
-    with st.form("entry", clear_on_submit=False, border=False):
-        ec = st.columns([1, 1, 1, 1, 0.5, 1.5], vertical_alignment="bottom")
-        e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
-                                  label_visibility="collapsed")
-        raw = {c: ec[i + 1].text_input(c, placeholder=c, label_visibility="collapsed") for i, c in enumerate(ALL)}
-        ok = ec[4].form_submit_button("Save", type="primary", width="stretch")
-
-    if ok:
-        try:
-            vals = {c: parse_num(raw[c]) for c in ALL}
-        except ValueError:
-            st.error("Numbers only (commas are fine).")
-            return
-        if all(v is None for v in vals.values()):
-            st.error("Enter at least one number.")
-            return
-        d0 = pd.Timestamp(e_date)
-
-        # anything that needs a second look: date already saved, or cumulative falling
-        notes = []
-        if d0 in df.index:
-            old = {c: (None if pd.isna(v) else float(v)) for c, v in df.loc[d0].items()}
-            vals = {c: old[c] if vals[c] is None else vals[c] for c in ALL}        # blank = keep saved value
-            changed = [c for c in ALL if old[c] is not None and vals[c] != old[c]]
-            if changed:
-                notes.append(f"{d0:%d %b} already saved ({vals_text(old)}).")
-        notes += value_notes(d0, vals)
-        if not notes:
-            do_save(d0, vals)
-            return
-        st.session_state["pending_save"] = (d0, vals, notes)
-
-    pending = st.session_state.get("pending_save")
-    if pending:
-        d0, vals, notes = pending
-        cc = st.columns([3.2, 0.6, 0.6, 1.6], vertical_alignment="center")
-        cc[0].warning(" ".join(notes) + f" Override with {vals_text(vals)}?")
-        if cc[1].button("Override", type="primary", width="stretch"):
-            do_save(d0, vals)
-        if cc[2].button("Cancel", width="stretch"):
-            st.session_state.pop("pending_save", None)
-            st.rerun()
-
-
 def render_history():
     if not entry_enabled():
         return
@@ -759,15 +708,19 @@ def render_history():
 # ---------------------------------------------------------------------------------------------
 (t_main,) = st.tabs(["Daily Cecafe"])
 with t_main:
-    view = st.radio("View", ["Tabular", "Visuals"], horizontal=True, label_visibility="collapsed", key="view")
+    view = st.radio("View", ["Tabular", "Visuals & History"], horizontal=True, label_visibility="collapsed",
+                    key="view")
     if view == "Tabular":
-        render_entry()
-        render_table()
-        render_season_tables()
-        render_history()
+        ec, tc = st.columns([1.15, 2.6], gap="medium")
+        with ec:
+            render_entry_grid()
+        with tc:
+            render_table()
+            render_history()
     else:
-        sub_charts, sub_acc = st.tabs(["Seasonality", "Projection Accuracy"])
+        sub_charts, sub_acc = st.tabs(["Seasonality & History", "Projection Accuracy"])
         with sub_charts:
             render_visuals()
+            render_history_tables()
         with sub_acc:
             render_accuracy()

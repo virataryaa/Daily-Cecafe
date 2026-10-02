@@ -117,9 +117,9 @@ def fmt(v):
 
 def base_layout(fig, title, height=430):
     fig.update_layout(
-        template="plotly_white", height=height, margin=dict(l=10, r=10, t=44, b=10),
+        template="plotly_white", height=height, margin=dict(l=10, r=10, t=44, b=60),
         title=dict(text=title, x=0.01, font=dict(size=15, color=NAVY)),
-        legend=dict(orientation="h", y=1.0, x=1.0, xanchor="right", yanchor="bottom"),
+        legend=dict(orientation="h", y=-0.1, x=0, xanchor="left", yanchor="top", font=dict(size=11)),
         hovermode="x unified", paper_bgcolor="#fafafa", plot_bgcolor="#ffffff",
         yaxis=dict(tickformat=","), xaxis=dict(dtick=2, title=None, range=[0.5, 31.5]),
     )
@@ -241,7 +241,7 @@ with t_daily:
                                      line=dict(color=NAVY, width=3.5),
                                      marker=dict(size=8, color="#f2c200", line=dict(color=NAVY, width=1.5)),
                                      connectgaps=connect))
-            if pr and pr[0] < dim:
+            if pr and 10 < pr[0] < dim:          # no projection line in the first 10 days
                 fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
                                          line=dict(color=NAVY, width=2, dash="dot"),
                                          marker=dict(size=7, symbol="diamond")))

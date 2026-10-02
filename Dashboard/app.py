@@ -66,6 +66,9 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
     background: #ffffff; border: 1px solid #e3e7f0 !important; border-radius: 12px;
     box-shadow: 0 1px 3px rgba(10,36,99,0.06); }
+.st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
+.st-key-nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 14px !important; }
+.page-title { color: #0a2463; font-weight: 700; font-size: 1.25rem; margin: 0 0 6px 0; }
 .card-title { color: #0a2463; font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
 .pill { display: inline-block; background: #e6e9f2; color: #0a2463; font-size: 11px; font-weight: 600;
         padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
@@ -294,7 +297,7 @@ def history_table_html(comm):
 
 
 def render_history_tables():
-    st.markdown(f"<div class='chart-head' style='margin-top:18px'>{MONTHS[sel_m - 1]} by year, cumulative MTD</div>"
+    st.markdown(f"<div class='chart-head' style='margin-top:6px'>{MONTHS[sel_m - 1]} by year, cumulative MTD</div>"
                 "<div class='card-desc'>Blank = Cecafe skipped the day. Adj daily = skipped days split equally.</div>",
                 unsafe_allow_html=True)
     comms = [c for c in ALL if not df[c].dropna().empty]
@@ -724,24 +727,25 @@ def render_history():
 # ---------------------------------------------------------------------------------------------
 # LAYOUT
 # ---------------------------------------------------------------------------------------------
-(t_main,) = st.tabs(["Daily Cecafe"])
-with t_main:
-    view = st.radio("View", ["Tabular", "Visuals & History"], horizontal=True, label_visibility="collapsed",
-                    key="view")
-    if view == "Tabular":
-        ec, tc = st.columns([1.4, 2.6], gap="medium")
-        with ec, st.container(border=True):
-            render_entry_grid()
-        with tc:
+st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pill'>{MON}</span></div>",
+            unsafe_allow_html=True)
+# one row of pill tabs; a radio so only the open page is computed
+with st.container(key="nav"):
+    page = st.radio("Page", ["Entry", "Seasonality", "History", "Projection Accuracy"], horizontal=True,
+                    label_visibility="collapsed", key="page")
+if page == "Entry":
+    ec, tc = st.columns([1.4, 2.6], gap="medium")
+    with ec, st.container(border=True):
+        render_entry_grid()
+    with tc:
+        with st.container(border=True):
+            render_table()
+        if entry_enabled():
             with st.container(border=True):
-                render_table()
-            if entry_enabled():
-                with st.container(border=True):
-                    render_history()
-    else:
-        sub_charts, sub_acc = st.tabs(["Seasonality & History", "Projection Accuracy"])
-        with sub_charts:
-            render_visuals()
-            render_history_tables()
-        with sub_acc:
-            render_accuracy()
+                render_history()
+elif page == "Seasonality":
+    render_visuals()
+elif page == "History":
+    render_history_tables()
+else:
+    render_accuracy()

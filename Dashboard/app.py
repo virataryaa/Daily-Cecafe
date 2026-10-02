@@ -455,6 +455,14 @@ def render_visuals():
                 fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
                                          line=dict(color=NAVY, width=1.5, dash="dot"),
                                          marker=dict(size=7, symbol="diamond")))
+        # average bags/day of this month in the previous LOOKBACK years (month-end / days in month)
+        per_day = [month_final(s, y, sel_m) / month_dim(y, sel_m) for y in range(sel_y - LOOKBACK, sel_y)
+                   if month_final(s, y, sel_m)]
+        if per_day:
+            avg_d = sum(per_day) / len(per_day)
+            fig.add_trace(go.Scatter(x=[0.5, dim + 0.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
+                                     name=f"{len(per_day)}y avg daily", hovertemplate="%{y:,.0f}",
+                                     line=dict(color="#4a5578", width=1.5, dash="dot")))
         chart_layout(fig, height=480)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])

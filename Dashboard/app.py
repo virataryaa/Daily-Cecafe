@@ -310,11 +310,6 @@ def render_history_tables():
 def entry_grid():
     """Selected month only: one row per day, one column per type (text cells: blank stays blank, commas allowed)."""
     dim = month_dim(sel_y, sel_m)
-    today = pd.Timestamp.today()
-    if (sel_y, sel_m) == (today.year, today.month):
-        last_seen = max([month_series(df[c], sel_y, sel_m).index.max() for c in ALL
-                         if not month_series(df[c], sel_y, sel_m).empty] or [0])
-        dim = min(dim, max(today.day, last_seen) + 2)
     g = pd.DataFrame(index=[f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)])
     for c in ALL:
         m = month_series(df[c], sel_y, sel_m)

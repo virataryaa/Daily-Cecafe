@@ -493,12 +493,12 @@ def render_visuals():
         s = df[comm]
         fig = go.Figure()
         seq, y, m = [], sel_y, sel_m
-        for _ in range(5):
+        for _ in range(6):                                      # selected month + 5 before it
             seq.append((y, m))
             m -= 1
             if m == 0:
                 y, m = y - 1, 12
-        for k, ((yy, mm), col) in enumerate(zip(seq, [NAVY, RED, TEAL, AMBER, GREY])):
+        for k, ((yy, mm), col) in enumerate(zip(seq[:5], [NAVY, RED, TEAL, AMBER, GREY])):
             h = month_series(s, yy, mm)
             if h.empty:
                 continue
@@ -506,7 +506,32 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
                                      mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
-        return bottom_legend(chart_layout(fig, height=480))
+
+        # Adj daily panel: previous month (light red) next to the selected month, plus 5-month avg/day
+        lab = lambda yy, mm: f"{MONTHS[mm - 1]}'{str(yy)[2:]}"
+        for (yy, mm), colr in ((seq[1], "rgba(201,74,74,0.28)"), (seq[0], "#8f9bb8")):
+            mser = month_series(s, yy, mm)
+            if not mser.empty:
+                ad = adjusted_daily(mser)
+                fig.add_trace(go.Bar(x=ad.index, y=ad.values, name=f"Adj daily {lab(yy, mm)}", marker_color=colr,
+                                     hovertemplate="%{y:,.0f}", yaxis="y2"))
+        per_day = [month_final(s, yy, mm) / month_dim(yy, mm) for yy, mm in seq[1:] if month_final(s, yy, mm)]
+        if per_day:
+            avg_d = sum(per_day) / len(per_day)
+            fig.add_trace(go.Scatter(x=[0.5, 31.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
+                                     name=f"{len(per_day)}m avg/day", hovertemplate="%{y:,.0f}",
+                                     line=dict(color="#4a5578", width=1.5, dash="dot")))
+        chart_layout(fig, height=600)
+        ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
+        fig.update_layout(
+            yaxis=dict(domain=[0.3, 1], range=[0, ymax * 1.05]),
+            yaxis2=dict(domain=[0, 0.22], anchor="x", tickformat=",", hoverformat=",.0f", nticks=3,
+                        gridcolor="rgba(10,36,99,0.08)", color="#4a5578",
+                        title=dict(text="Adj daily", font=dict(size=10, color="#7a86a8"))),
+            xaxis=dict(anchor="y2"),
+            barmode="group", bargap=0.25, bargroupgap=0.05,
+        )
+        return bottom_legend(fig)
 
     # row 1: same month across years, Arabica | Robusta
     for col_, comm in zip(st.columns(len(COMMS)), COMMS):
@@ -519,7 +544,8 @@ def render_visuals():
     for col_, comm in zip(st.columns(len(COMMS)), COMMS):
         with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>"
-                        "<div class='card-desc'>Cumulative by day of month.</div>", unsafe_allow_html=True)
+                        "<div class='card-desc'>Bars = Adj daily, this vs previous month; dotted = avg/day of the 5 months before.</div>",
+                        unsafe_allow_html=True)
             st.plotly_chart(last_months_fig(comm), width="stretch")
 
 # ---------------------------------------------------------------------------------------------

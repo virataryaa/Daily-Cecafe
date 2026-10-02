@@ -201,7 +201,6 @@ def render():
         page = st.radio("Section", ["Entry", "Charts", "Table", "Advanced Study"], horizontal=True,
                         label_visibility="collapsed", key="mc_page")
     if page == "Entry":
-        _controls(raw, gbe)                                          # the one place for Type / Unit / Years / Projection
         render_input(raw, gbe)
     elif page == "Advanced Study":
         st.markdown("<div class='card-desc' style='margin-top:12px'>Nothing here yet.</div>", unsafe_allow_html=True)
@@ -235,44 +234,33 @@ def _context(raw, gbe, comm, unit, span):
         sig=(comm, unit, latest_cy, common))
 
 
-def _controls(raw, gbe):
-    """Type / Unit / Years / Projection, drawn once here (Entry tab) and used by the Charts and Table tabs."""
-    with st.container(border=True):
-        st.markdown("<div class='card-title'>Controls</div>"
-                    "<div class='card-desc'>These choices drive the Charts and Table tabs.</div>", unsafe_allow_html=True)
-        comm = st.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key="mc_comm")
-        b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
-        unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key="mc_unit")
-        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
-                        key="mc_span")
-        ctx = _context(raw, gbe, comm, unit, span)
-        if ctx is None:
-            st.session_state["mc_proj"] = {}
-            return
-        with b3:
-            proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"], unit, ctx["fmt"])
-    st.session_state["mc_proj"] = {"sig": ctx["sig"], "vals": proj}                 # read by the Charts tab
-
-
 def _views(raw, gbe, page):
-    comm = st.session_state.get("mc_comm", COMMS[0])
-    unit = st.session_state.get("mc_unit", list(UNITS)[0])
-    span = st.session_state.get("mc_span", "Last 5")
-    ctx = _context(raw, gbe, comm, unit, span)
+    """Charts and Table each have their own controls (separate state): Type + Unit on both, Years + Projection on Charts."""
+    pre = "ch" if page == "Charts" else "tb"
+    with st.container(border=True):
+        comm = st.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_comm")
+        b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
+        unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_unit")
+        span = "All"
+        if page == "Charts":
+            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
+                            key="mc_ch_span")
+        ctx = _context(raw, gbe, comm, unit, span)
+        proj = {}
+        if ctx is not None and page == "Charts":
+            with b3:
+                proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"], unit,
+                                   ctx["fmt"])
     if ctx is None:
         st.info("No data for this selection.")
         return
-    store = st.session_state.get("mc_proj") or {}
-    proj = store.get("vals", {}) if store.get("sig") == ctx["sig"] else {}
     ytd_now, yo, fmt = ctx["ytd"].get(ctx["latest_cy"]), ctx["yoy"].get(ctx["latest_cy"]), ctx["fmt"]
     line = [f"Crop year <b>{ctx['latest_cy']}</b> to {MONTHS[ctx['common'] - 1]}", f"YTD <b>{format(ytd_now, fmt)}</b>"]
     if pd.notna(yo):
         line.append(f"{yo:+.1f}% YoY")
     if proj:
         line.append(f"Projected full year <b>{format(ytd_now + sum(proj.values()), fmt)}</b>")
-    st.markdown(f"<div class='card-desc' style='margin:8px 0 2px'>{ctx['comm']} · {ctx['unit']} · {ctx['span']} "
-                f"&nbsp;|&nbsp; {' · '.join(line)} &nbsp;|&nbsp; <i>change Type, Unit, Years and Projection in the "
-                "Entry tab</i></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card-desc' style='margin:8px 0 2px'>{' · '.join(line)}</div>", unsafe_allow_html=True)
     if page == "Charts":
         _charts(ctx, proj)
     else:

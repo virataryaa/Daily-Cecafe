@@ -132,17 +132,33 @@ last_date = df.dropna(how="all").index.max()
 # --------------------------------------------------------------------------- sidebar
 with st.sidebar:
     st.markdown("### Cecafe Daily")
-    ym_all = sorted({(d.year, d.month) for d in df.index})
-    labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
-    sel = st.selectbox("Month", labels[::-1], index=0)
+
+ym_all = sorted({(d.year, d.month) for d in df.index})
+labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
+if st.session_state.get("month_sel") not in labels:
+    st.session_state["month_sel"] = labels[-1]
+
+
+def _step(k):
+    i = labels.index(st.session_state["month_sel"]) + k
+    st.session_state["month_sel"] = labels[min(max(i, 0), len(labels) - 1)]
+
+
+tc = st.columns([5.2, 0.7, 1.4, 0.7], vertical_alignment="bottom")
+_i = labels.index(st.session_state["month_sel"])
+tc[1].button("< Prev", on_click=_step, args=(-1,), disabled=_i == 0, width="stretch")
+tc[2].selectbox("Month", labels[::-1], key="month_sel", label_visibility="collapsed")
+tc[3].button("Next >", on_click=_step, args=(1,), disabled=_i == len(labels) - 1, width="stretch")
+sel = st.session_state["month_sel"]
+tc[0].markdown(f"## Cecafe Daily Registrations: {sel.split()[0]}'{sel.split()[1][2:]}")
+
+with st.sidebar:
     sel_y, sel_m = ym_all[labels.index(sel)]
     min_year = st.slider("History from", int(df.index.year.min()), sel_y - 1, max(sel_y - 5, int(df.index.year.min())))
     connect = st.toggle("Connect gaps", value=False)
     st.markdown(f"<div class='side-note'>Latest data: <b>{last_date:%d %b %Y}</b><br>"
                 f"Cumulative month-to-date registrations, bags.<br>"
                 f"Blank days are split equally in Adj daily.</div>", unsafe_allow_html=True)
-
-st.markdown(f"## Cecafe Daily Registrations: {MONTHS[sel_m - 1]}'{str(sel_y)[2:]}")
 
 t_daily, t_acc, t_entry = st.tabs(["Daily", "Projection Accuracy", "Entry"])
 
@@ -221,8 +237,7 @@ with t_daily:
             fig.add_trace(go.Scatter(x=bd.index, y=bd.max(axis=1), mode="lines", line=dict(width=0),
                                      hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=bd.index, y=bd.min(axis=1), mode="lines", line=dict(width=0),
-                                     fill="tonexty", fillcolor="rgba(31,138,156,0.10)",
-                                 fillpattern=dict(shape="/", fgcolor="rgba(31,138,156,0.35)", size=7, solidity=0.15),
+                                     fill="tonexty", fillcolor="rgba(31,138,156,0.14)",
                                      name=f"{len(band)}y min-max", hoverinfo="skip"))
         years = [y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty]
         for i, y in enumerate(years):
@@ -299,8 +314,7 @@ with t_acc:
             fig.add_trace(go.Scatter(x=g.index, y=g.hi, mode="lines", line=dict(width=0),
                                      hoverinfo="skip", showlegend=False))
             fig.add_trace(go.Scatter(x=g.index, y=g.lo, mode="lines", line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(31,138,156,0.10)",
-                                 fillpattern=dict(shape="/", fgcolor="rgba(31,138,156,0.35)", size=7, solidity=0.15), name="80% of months"))
+                                     fillcolor="rgba(31,138,156,0.14)", name="80% of months"))
             fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss (+ = too high)", mode="lines+markers",
                                      line=dict(color=NAVY, width=3), marker=dict(size=6)))
             fig.add_hline(y=0, line=dict(color=GREY, width=1))

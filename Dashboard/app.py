@@ -279,6 +279,35 @@ def render_table():
     st.write("")
 
 
+def season_table_html(comm):
+    """Same month across years, cumulative by day (blank = Cecafe skipped), plus Adj daily for the selected year."""
+    s = df[comm]
+    years = [y for y in range(min_year, sel_y + 1) if not month_series(s, y, sel_m).empty]
+    if not years:
+        return ""
+    dim = month_dim(sel_y, sel_m)
+    ser = {y: month_series(s, y, sel_m) for y in years}
+    ad = adjusted_daily(ser[sel_y]) if sel_y in ser else pd.Series(dtype=float)
+    head = "".join(f"<th>{y}</th>" for y in years) + "<th class='g3'>Adj daily</th>"
+    body = ""
+    for d_ in range(1, dim + 1):
+        body += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
+        for y in years:
+            v = ser[y].get(d_)
+            body += f"<td class='{'b' if y == sel_y else ''}'>{'' if v is None else fmt(v)}</td>"
+        body += f"<td>{'' if d_ not in ad.index else fmt(ad[d_])}</td></tr>"
+    return (f"<div class='chart-head'>{comm} seasonality</div>"
+            "<table class='dtab'><tr class='sub'><th>Date</th>" + head + "</tr>" + body + "</table>")
+
+
+def render_season_tables():
+    st.markdown(f"<div class='card-desc' style='margin-top:14px'>{MONTHS[sel_m - 1]} across years, cumulative. "
+                "Blank = Cecafe skipped the day.</div>", unsafe_allow_html=True)
+    cs = st.columns(len(COMMS))
+    for col_, comm in zip(cs, COMMS):
+        col_.markdown(season_table_html(comm), unsafe_allow_html=True)
+
+
 def render_visuals():
     def same_month_fig(comm):
         s = df[comm]
@@ -660,6 +689,7 @@ with t_main:
     if view == "Tabular":
         render_entry()
         render_table()
+        render_season_tables()
         render_history()
     else:
         sub_charts, sub_acc = st.tabs(["Seasonality", "Projection Accuracy"])

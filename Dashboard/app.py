@@ -506,6 +506,33 @@ def apply_entry(frame, d0, va, vr):
     return frame, existed
 
 
+def commit_change(change, msg):
+    """change(frame) -> (new_frame, info). One PUT using the cached sha; re-read once if the file moved on."""
+    state = gh_state()
+    frame, sha = (state["csv"], state["sha"]) if "sha" in state else gh_read()
+    new_csv, info = change(frame)
+    try:
+        gh_write(new_csv, sha, msg)
+    except GitHubError as ex:
+        if ex.status not in (409, 422):
+            raise
+        frame, sha = gh_read()
+        new_csv, info = change(frame)
+        gh_write(new_csv, sha, msg)
+    new_csv.to_csv(DATA, index=False, lineterminator="\n")             # show it now, before Cloud redeploys
+    load.clear()
+    return info
+
+
+def delete_rows(frame, d0):
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"])
+    found = (frame.date == d0).any()
+    frame = frame[frame.date != d0]
+    frame["date"] = frame["date"].dt.strftime("%Y-%m-%d")
+    return frame, found
+
+
 def render_entry():
     if st.session_state.get("flash"):
         st.success(st.session_state.pop("flash"))
@@ -515,12 +542,43 @@ def render_entry():
     st.markdown("<div class='chart-head'>Add entry</div><div class='card-desc'>Cumulative MTD from Cecafe. "
                 "Blank = not shown.</div>", unsafe_allow_html=True)
     with st.form("entry", clear_on_submit=False, border=False):
-        ec = st.columns([1, 1, 1, 0.5, 2.5], vertical_alignment="bottom")
+        ec = st.columns([1, 1, 1, 0.5, 0.5, 2], vertical_alignment="bottom")
         e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY",
                                   label_visibility="collapsed")
         e_ara = ec[1].text_input("Arabica", placeholder="Arabica", label_visibility="collapsed")
         e_rob = ec[2].text_input("Robusta", placeholder="Robusta", label_visibility="collapsed")
         ok = ec[3].form_submit_button("Save", type="primary", width="stretch")
+        rm = ec[4].form_submit_button("Delete", width="stretch")
+
+    # delete: ask once, then remove the row for that date
+    if rm:
+        d_rm = pd.Timestamp(e_date)
+        if d_rm not in df.index:
+            st.error(f"No entry for {d_rm:%d %b %Y}.")
+        else:
+            st.session_state["pending_delete"] = d_rm
+    d_rm = st.session_state.get("pending_delete")
+    if d_rm is not None:
+        row = df.loc[d_rm] if d_rm in df.index else None
+        cc = st.columns([3, 0.7, 0.7, 2], vertical_alignment="center")
+        cc[0].warning(f"Delete {d_rm:%d %b %Y}"
+                      + (f" (Arabica {fmt(row.Arabica)}, Robusta {fmt(row.Robusta)})?" if row is not None else "?"))
+        yes = cc[1].button("Yes, delete", type="primary", width="stretch")
+        no = cc[2].button("Cancel", width="stretch")
+        if no:
+            st.session_state.pop("pending_delete", None)
+            st.rerun()
+        if yes:
+            with st.spinner("Deleting..."):
+                try:
+                    commit_change(lambda f: delete_rows(f, d_rm), f"Delete {d_rm:%Y-%m-%d} via dashboard")
+                except (GitHubError, requests.RequestException) as ex:
+                    st.error(f"GitHub delete failed: {ex}")
+                    return
+            st.session_state.pop("pending_delete", None)
+            st.session_state["flash"] = f"Deleted {d_rm:%d %b %Y}."
+            st.rerun()
+        return
     if not ok:
         return
     try:
@@ -549,25 +607,10 @@ def render_entry():
     msg = f"Entry {d0:%Y-%m-%d} via dashboard | Arabica {fmt(va)} | Robusta {fmt(vr)}"
     with st.spinner("Saving..."):
         try:
-            state = gh_state()
-            if "sha" in state:
-                frame, sha = state["csv"], state["sha"]
-            else:
-                frame, sha = gh_read()
-            new_csv, existed = apply_entry(frame, d0, va, vr)
-            try:
-                gh_write(new_csv, sha, msg)
-            except GitHubError as ex:
-                if ex.status not in (409, 422):                     # someone else changed the file: re-read once
-                    raise
-                frame, sha = gh_read()
-                new_csv, existed = apply_entry(frame, d0, va, vr)
-                gh_write(new_csv, sha, msg)
+            existed = commit_change(lambda f: apply_entry(f, d0, va, vr), msg)
         except (GitHubError, requests.RequestException) as ex:
             st.error(f"GitHub save failed: {ex}")
             return
-    new_csv.to_csv(DATA, index=False, lineterminator="\n")             # show it now, before Cloud redeploys
-    load.clear()
     st.session_state["flash"] = f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: Arabica {fmt(va)}, Robusta {fmt(vr)}."
     st.rerun()
 
@@ -581,7 +624,7 @@ def render_history():
         return
     rows = ""
     for ts, msg in hist:
-        if not msg.startswith("Entry ") and not msg.startswith("Data update"):
+        if not msg.startswith(("Entry ", "Delete ", "Data update")):
             continue
         when = pd.Timestamp(ts).tz_convert(IST)
         parts = [x.strip() for x in msg.split("|")]
@@ -589,6 +632,9 @@ def render_history():
             for_date = pd.Timestamp(parts[0].split()[1]).strftime("%d-%b")
             vals = {k: v for k, v in (x.split(" ", 1) for x in parts[1:])}
             src = "Dashboard"
+        elif msg.startswith("Delete "):
+            for_date = pd.Timestamp(msg.split()[1]).strftime("%d-%b")
+            vals, src = {"Arabica": "deleted", "Robusta": "deleted"}, "Dashboard"
         else:
             for_date, vals, src = "-", {}, "Local push"
         rows += (f"<tr><td class='ts'>{when:%d %b %H:%M}</td><td class='dt'>{for_date}</td>"

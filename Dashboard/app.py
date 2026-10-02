@@ -242,12 +242,18 @@ TODAY = pd.Timestamp.today()
 ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month)})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
+_daily = st.session_state.get("main_tab", "Daily Cecafe") == "Daily Cecafe"      # sidebar filters are Daily-only
 with st.sidebar:
-    st.markdown("<div class='sb-title'>Cecafe Daily</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
-                "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
-    st.subheader("Filters")
-    sel = st.selectbox("Month", labels[::-1][:12], index=0)
+    st.markdown("<div class='sb-title'>Cecafe</div>", unsafe_allow_html=True)
+    if _daily:
+        st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
+                    "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
+        st.subheader("Filters")
+        sel = st.selectbox("Month", labels[::-1][:12], index=0)
+    else:
+        st.markdown("<div class='sb-caption'>Brazil monthly coffee exports by crop year (Jul-Jun), bags.</div>",
+                    unsafe_allow_html=True)
+        sel = labels[::-1][0]
     sel_y, sel_m = ym_all[labels.index(sel)]
     MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
     first_year = int(df.index.year.min())
@@ -992,8 +998,8 @@ def render_history():
 # ---------------------------------------------------------------------------------------------
 # LAYOUT
 # ---------------------------------------------------------------------------------------------
-# main tabs (one pill row). Add "Monthly Cecafe" here later and give it its own `if main == ...` block.
-MAIN = ["Daily Cecafe"]
+# main tabs (one underlined row); each one gets its own `if main == ...` block below.
+MAIN = ["Daily Cecafe", "Monthly Cecafe"]
 with st.container(key="main"):
     main = st.radio("Section", MAIN, horizontal=True, label_visibility="collapsed", key="main_tab")
 
@@ -1035,3 +1041,6 @@ if main == "Daily Cecafe":
             "The dark line is the typical (median) miss for that day across all months; the shaded band holds the "
             "middle 80% of months. In the table, <i>Avg miss</i> is the typical size of the error and <i>Bias</i> is its "
             "direction (+ means the projection was too high).</div>", unsafe_allow_html=True)
+elif main == "Monthly Cecafe":
+    import monthly
+    monthly.render()

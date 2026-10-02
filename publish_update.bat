@@ -28,17 +28,22 @@ if errorlevel 1 (
 )
 
 echo.
+echo Rebuilding monthly exports from the Excel (Arabica/Robusta/Soluble Exports sheets) ...
+python Automator\build_exports.py
+if errorlevel 1 echo   (skipped - could not read the workbook, the old exports file is kept)
+
+echo.
 echo Step 2/3: Checking for changes ...
-git diff --quiet -- "Database\cecafe_daily.csv"
+git diff --quiet -- "Database\cecafe_daily.csv" "Database\cecafe_exports.csv"
 if not errorlevel 1 (
-    echo No changes detected in "Database\cecafe_daily.csv" - nothing to push.
+    echo No changes detected in the data files - nothing to push.
     pause
     exit /b 0
 )
 
 echo.
 echo Step 3/3: Committing and pushing to GitHub ...
-git add "Database\cecafe_daily.csv"
+git add "Database\cecafe_daily.csv" "Database\cecafe_exports.csv"
 for /f "delims=" %%i in ('powershell -NoProfile -Command "Get-Date -Format \"yyyy-MM-dd HH:mm\""') do set STAMP=%%i
 git commit -m "Data update %STAMP%"
 if errorlevel 1 (

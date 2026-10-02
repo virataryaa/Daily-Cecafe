@@ -13,15 +13,15 @@ except Exception as e:
     print("Cannot read CSV:", e)
     sys.exit(1)
 
-if list(d.columns) != ["date", "Arabica", "Robusta"]:
-    problems.append(f"Columns must be date,Arabica,Robusta - found {list(d.columns)}")
+if list(d.columns) not in (["date", "Arabica", "Robusta"], ["date", "Arabica", "Robusta", "Soluble"]):
+    problems.append(f"Columns must be date,Arabica,Robusta,Soluble - found {list(d.columns)}")
 else:
     dt = pd.to_datetime(d["date"], errors="coerce")
     for i in d.index[dt.isna()]:
         problems.append(f"Row {i + 2}: bad date '{d.loc[i, 'date']}' (use YYYY-MM-DD)")
     for dup in dt[dt.duplicated() & dt.notna()].dt.date.unique():
         problems.append(f"Duplicate date {dup}")
-    for c in ["Arabica", "Robusta"]:
+    for c in [c for c in ["Arabica", "Robusta", "Soluble"] if c in d.columns]:
         v = pd.to_numeric(d[c], errors="coerce")
         for i in d.index[v.isna() & d[c].notna()]:
             problems.append(f"Row {i + 2}: {c} is not a number ('{d.loc[i, c]}')")

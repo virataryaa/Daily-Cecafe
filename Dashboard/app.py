@@ -215,7 +215,9 @@ def sidebar_stats(rows):
 df = load()
 last_date = df.dropna(how="all").index.max()
 
-ym_all = sorted({(d.year, d.month) for d in df.index})
+TODAY = pd.Timestamp.today()
+# months with data, plus the running calendar month so its first day can be entered
+ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month)})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
 with st.sidebar:
@@ -223,7 +225,9 @@ with st.sidebar:
     st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
                 "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
     st.subheader("Filters")
-    sel = st.selectbox("Month", labels[::-1], index=0)
+    show_all = st.session_state.get("all_months", False)
+    sel = st.selectbox("Month", labels[::-1] if show_all else labels[::-1][:5], index=0)
+    st.checkbox("Show all months", key="all_months")
     sel_y, sel_m = ym_all[labels.index(sel)]
     MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
     first_year = int(df.index.year.min())

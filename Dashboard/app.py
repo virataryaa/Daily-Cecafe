@@ -507,9 +507,9 @@ def render_visuals():
                                      mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
 
-        # Adj daily panel: previous month (light red) next to the selected month, plus 5-month avg/day
+        # Adj daily panel: previous month (light yellow) next to the selected month, plus 5-month avg/day
         lab = lambda yy, mm: f"{MONTHS[mm - 1]}'{str(yy)[2:]}"
-        for (yy, mm), colr in ((seq[1], "rgba(201,74,74,0.28)"), (seq[0], "#8f9bb8")):
+        for (yy, mm), colr in ((seq[1], "rgba(224,170,40,0.45)"), (seq[0], "#8f9bb8")):
             mser = month_series(s, yy, mm)
             if not mser.empty:
                 ad = adjusted_daily(mser)

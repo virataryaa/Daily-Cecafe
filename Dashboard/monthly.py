@@ -569,6 +569,33 @@ def _save_exports(changes: list, who: str = "dashboard"):
     load.clear()
 
 
+HIGH, LOW = 1.8, 0.4                         # a month this many times above / below its usual level gets a question
+
+
+def _sanity_notes(changes: list, vals: dict, raw: pd.DataFrame) -> list:
+    """Questions for entries that look too big or too small.
+    Usual level = median of the same calendar month in the 3 years before and after (whatever exists, at least 2).
+    Also: above the biggest month ever seen for that type (extra zero), or below 1,000 (typed in '000 bags?)."""
+    notes = []
+    for c, y, m, o, n in changes:
+        if n is None:
+            continue
+        lab = f"{c} {CAL[m - 1]} {y}"
+        near = sorted(v for y2 in range(y - 3, y + 4) if y2 != y and (v := vals.get((c, y2, m))) is not None)
+        cap = raw.loc[raw["commodity"] == c, "bags"].max()
+        if cap and n > 1.6 * cap:
+            notes.append(f"{lab}: {n:,.0f} is far above anything seen (max {cap:,.0f}). Extra zero?")
+        elif len(near) >= 2:
+            ref = near[len(near) // 2] if len(near) % 2 else (near[len(near) // 2 - 1] + near[len(near) // 2]) / 2
+            if ref > 0 and n > HIGH * ref:
+                notes.append(f"{lab}: {n:,.0f} is {n / ref:.1f}x the usual {ref:,.0f} for that month. Too big?")
+            elif ref > 0 and n < LOW * ref:
+                notes.append(f"{lab}: {n:,.0f} is only {n / ref:.0%} of the usual {ref:,.0f} for that month. Too small?")
+        if n < 1000:
+            notes.append(f"{lab}: {n:,.0f} bags looks tiny. Typed in '000 bags?")
+    return notes
+
+
 def _save_gbe(old: float, new: float):
     msg = f"Setting | Soluble GBE multiplier: {old:g} -> {new:g}"
     text, _ = gh.commit(SETTINGS_PATH, lambda _t: (json.dumps({"soluble_gbe": new}, indent=2) + "\n", None), msg)
@@ -585,9 +612,9 @@ def render_input(raw: pd.DataFrame, gbe: float):
     last_data = max(y for (_, y, _) in vals) if vals else 2026
     show_n = st.radio("Years shown", ["Recent", f"All ({FIRST_YEAR}-{LAST_YEAR})"], horizontal=True,
                       label_visibility="collapsed", key="mc_edit_years")
-    hi_y = min(LAST_YEAR, last_data + 2)
+    hi_y = min(LAST_YEAR, max(last_data, pd.Timestamp.today().year))
     yr_list = (list(range(FIRST_YEAR, LAST_YEAR + 1)) if show_n.startswith("All")
-               else list(range(max(FIRST_YEAR, last_data - 4), hi_y + 1)))                      # oldest first
+               else [hi_y - 1, hi_y])                                                           # Recent = last 2 years
 
     with st.container(border=True):
         st.markdown("<div class='card-title'>Monthly exports, bags</div>"
@@ -627,11 +654,7 @@ def render_input(raw: pd.DataFrame, gbe: float):
                 bc[2].markdown(f"<div class='card-desc' style='margin:0'>{len(changes)} unsaved cell(s).</div>",
                                unsafe_allow_html=True)
             if save:
-                notes = []
-                for c, y, m, o, n in changes:                        # extra-zero check against the type's biggest month
-                    cap = raw.loc[raw["commodity"] == c, "bags"].max()
-                    if n is not None and cap and n > 1.6 * cap:
-                        notes.append(f"{c} {CAL[m - 1]} {y} {n:,.0f} is far above anything seen (max {cap:,.0f}). Extra zero?")
+                notes = _sanity_notes(changes, vals, raw)
                 if not notes:
                     _do_save(changes, keys)
                 st.session_state["mc_pending"] = notes

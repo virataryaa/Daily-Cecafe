@@ -511,6 +511,16 @@ def apply_entry(frame, d0, vals):
     return frame, existed
 
 
+@st.cache_data(ttl=600)
+def max_daily(data: pd.DataFrame, comm: str):
+    """Biggest Adj daily (bags/day) in history; None until a type has ~3 months of data."""
+    s = data[comm].dropna()
+    if s.empty or len({(d.year, d.month) for d in s.index}) < 3:
+        return None
+    peaks = [adjusted_daily(month_series(s, y, m)).max() for y, m in {(d.year, d.month) for d in s.index}]
+    return float(max(peaks))
+
+
 def vals_text(vals, sep=", "):
     return sep.join(f"{c} {fmt(vals.get(c))}" for c in ALL)
 
@@ -583,8 +593,17 @@ def render_entry():
         same_m = df[(df.index.year == d0.year) & (df.index.month == d0.month) & (df.index < d0)]
         for name, v in vals.items():
             prev_v = same_m[name].dropna()
-            if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
+            if v is None:
+                continue
+            if not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
                 notes.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}).")
+            # typo check (extra zero): implied bags/day vs the biggest day ever seen for this type
+            cap = max_daily(df, name)
+            base, base_day = (prev_v.iloc[-1], prev_v.index[-1].day) if not prev_v.empty else (0.0, 0)
+            per_day = (v - base) / max(d0.day - base_day, 1)
+            if cap and per_day > 1.5 * cap:
+                notes.append(f"{name} {v:,.0f} means ~{per_day:,.0f} bags/day; highest ever is ~{cap:,.0f}/day. "
+                             "Extra zero?")
         if not notes:
             do_save(d0, vals)
             return

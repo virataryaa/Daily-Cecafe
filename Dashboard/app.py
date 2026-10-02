@@ -1,7 +1,10 @@
+import base64
 import calendar
+import io
 from pathlib import Path
 
 import pandas as pd
+import requests
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -141,7 +144,7 @@ with st.sidebar:
 
 st.markdown(f"## Cecafe Daily Registrations: {MONTHS[sel_m - 1]}'{str(sel_y)[2:]}")
 
-t_daily, t_acc = st.tabs(["Daily", "Projection Accuracy"])
+t_daily, t_acc, t_entry = st.tabs(["Daily", "Projection Accuracy", "Entry"])
 
 with t_daily:
     # --------------------------------------------------------------------------- daily table (Excel layout)
@@ -312,3 +315,98 @@ with t_acc:
                               f"<td>{r.lo:+.0f}% to {r.hi:+.0f}%</td></tr>")
             st.markdown("<table class='dtab'><tr class='sub'><th>As of</th><th>Avg miss</th><th>Bias</th>"
                         "<th>80% range</th></tr>" + body_ + "</table>", unsafe_allow_html=True)
+
+
+# --------------------------------------------------------------------------- entry: write a row to GitHub
+REPO, REPO_PATH = "virataryaa/Daily-Cecafe", "Database/cecafe_daily.csv"
+GH_API = f"https://api.github.com/repos/{REPO}/contents/{REPO_PATH}"
+
+
+def gh_headers():
+    return {"Authorization": f"Bearer {st.secrets['github_token']}", "Accept": "application/vnd.github+json"}
+
+
+def gh_read():
+    r = requests.get(GH_API, headers=gh_headers(), params={"ref": "main"}, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    return pd.read_csv(io.StringIO(base64.b64decode(j["content"]).decode("utf-8"))), j["sha"]
+
+
+def gh_write(frame: pd.DataFrame, sha: str, msg: str):
+    body = {"message": msg, "branch": "main", "sha": sha,
+            "content": base64.b64encode(frame.to_csv(index=False, lineterminator="\n").encode()).decode()}
+    r = requests.put(GH_API, headers=gh_headers(), json=body, timeout=20)
+    r.raise_for_status()
+
+
+def parse_num(txt):
+    txt = (txt or "").replace(",", "").strip()
+    if not txt:
+        return None
+    return float(txt)
+
+
+with t_entry:
+    try:
+        _has_secrets = "github_token" in st.secrets and "entry_password" in st.secrets
+    except Exception:                       # no secrets file at all (local run)
+        _has_secrets = False
+    if not _has_secrets:
+        st.info("Entry is off: add github_token and entry_password in Streamlit Secrets.")
+    else:
+        st.markdown("<div class='card-desc'>Cumulative month-to-date from Cecafe. Leave blank if not shown.</div>",
+                    unsafe_allow_html=True)
+        with st.form("entry", clear_on_submit=False):
+            ec = st.columns([1.2, 1, 1, 1])
+            e_date = ec[0].date_input("Date", value=pd.Timestamp.today().date(), format="DD/MM/YYYY")
+            e_ara = ec[1].text_input("Arabica", placeholder="e.g. 151,804")
+            e_rob = ec[2].text_input("Robusta", placeholder="e.g. 77,905")
+            e_pwd = ec[3].text_input("Password", type="password")
+            ok = st.form_submit_button("Save", type="primary")
+        if ok:
+            try:
+                va, vr = parse_num(e_ara), parse_num(e_rob)
+            except ValueError:
+                va = vr = "bad"
+            errors = []
+            if e_pwd != st.secrets["entry_password"]:
+                errors.append("Wrong password.")
+            if va == "bad":
+                errors.append("Numbers only (commas are fine).")
+            elif va is None and vr is None:
+                errors.append("Enter at least one number.")
+            if not errors:
+                cur_csv, sha = gh_read()
+                cur_csv["date"] = pd.to_datetime(cur_csv["date"])
+                d0 = pd.Timestamp(e_date)
+                same_m = cur_csv[(cur_csv.date.dt.year == d0.year) & (cur_csv.date.dt.month == d0.month)
+                                 & (cur_csv.date < d0)]
+                for name, v in (("Arabica", va), ("Robusta", vr)):
+                    prev_v = same_m[name].dropna()
+                    if v is not None and not prev_v.empty and v < prev_v.iloc[-1] * 0.95:
+                        errors.append(f"{name} {v:,.0f} is below the previous day ({prev_v.iloc[-1]:,.0f}). "
+                                      "Cumulative should not fall.")
+            if errors:
+                for e in errors:
+                    st.error(e)
+            else:
+                existed = (cur_csv.date == d0).any()
+                cur_csv = cur_csv[cur_csv.date != d0]
+                cur_csv = pd.concat([cur_csv, pd.DataFrame([{"date": d0, "Arabica": va, "Robusta": vr}])])
+                cur_csv = cur_csv.sort_values("date")
+                cur_csv["date"] = cur_csv["date"].dt.strftime("%Y-%m-%d")
+                try:
+                    gh_write(cur_csv, sha, f"Entry {d0:%Y-%m-%d} via dashboard")
+                except requests.HTTPError as ex:
+                    st.error(f"GitHub save failed: {ex}")
+                else:
+                    cur_csv.to_csv(DATA, index=False, lineterminator="\n")   # show it now, before redeploy
+                    st.cache_data.clear()
+                    st.success(f"{'Updated' if existed else 'Saved'} {d0:%d %b %Y}: "
+                               f"Arabica {fmt(va)}, Robusta {fmt(vr)}.")
+        last5 = df.dropna(how="all").tail(5).iloc[::-1]
+        st.markdown("<div class='card-desc' style='margin-top:10px'>Last 5 entries</div>", unsafe_allow_html=True)
+        st.markdown("<table class='dtab'><tr class='sub'><th>Date</th><th>Arabica</th><th>Robusta</th></tr>"
+                    + "".join(f"<tr><td class='dt'>{i:%d-%b-%y}</td>{cell(r.Arabica)}{cell(r.Robusta)}</tr>"
+                              for i, r in last5.iterrows()) + "</table>", unsafe_allow_html=True)

@@ -7,6 +7,14 @@ echo  Cecafe Daily data publish
 echo ============================================
 echo.
 
+echo Pulling entries saved from the dashboard ...
+git pull --rebase --autostash
+if errorlevel 1 (
+    echo Pull failed - see error above.
+    pause
+    exit /b 1
+)
+
 echo Step 1/3: Validating Database\cecafe_daily.csv ...
 python validate_csv.py
 if errorlevel 1 (

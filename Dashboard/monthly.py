@@ -614,7 +614,7 @@ def render_input(raw: pd.DataFrame, gbe: float):
                       label_visibility="collapsed", key="mc_edit_years")
     hi_y = min(LAST_YEAR, max(last_data, pd.Timestamp.today().year))
     yr_list = (list(range(FIRST_YEAR, LAST_YEAR + 1)) if show_n.startswith("All")
-               else [hi_y - 1, hi_y])                                                           # Recent = last 2 years
+               else list(range(max(FIRST_YEAR, hi_y - 2), hi_y + 1)))                              # Recent = last 3 years
 
     with st.container(border=True):
         st.markdown("<div class='card-title'>Monthly exports, bags</div>"

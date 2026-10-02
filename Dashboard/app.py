@@ -67,6 +67,47 @@ def project(m: pd.Series, year: int, month: int):
     return n, x, x / n * dim, dim
 
 
+LOOKBACK = 5          # years in the min-max band
+
+
+def month_dim(year, month):
+    return calendar.monthrange(year, month)[1]
+
+
+def full_curve(m: pd.Series, dim: int) -> pd.Series:
+    """Observed cumulative -> every day 0..dim. 0 at day 0, linear between observations, flat after the last."""
+    c = pd.Series({0: 0.0, **m.astype(float).to_dict()}).reindex(range(0, dim + 1))
+    return c.interpolate(limit_area="inside").ffill()
+
+
+def month_final(s: pd.Series, year: int, month: int):
+    """Month-end total: last observation, only if it lands in the final 3 days (month complete)."""
+    m = month_series(s, year, month)
+    if m.empty or m.index[-1] < month_dim(year, month) - 3:
+        return None
+    return float(m.iloc[-1])
+
+
+@st.cache_data(ttl=600)
+def accuracy_table(data: pd.DataFrame, comm: str) -> pd.DataFrame:
+    """Every complete month: what the linear projection said on each day vs the actual month-end."""
+    s = data[comm]
+    rows = []
+    for y, mo in sorted({(d.year, d.month) for d in s.dropna().index}):
+        fin = month_final(s, y, mo)
+        if not fin:
+            continue
+        m = month_series(s, y, mo)
+        dim = month_dim(y, mo)
+        for day in range(1, dim + 1):
+            known = m[m.index <= day]                                  # only what was known on that day
+            if known.empty:
+                continue
+            k, x = int(known.index[-1]), float(known.iloc[-1])
+            rows.append(dict(year=y, month=mo, day=day, err=(x / k * dim / fin - 1) * 100))
+    return pd.DataFrame(rows)
+
+
 def fmt(v):
     return "-" if v is None or pd.isna(v) else f"{v:,.0f}"
 
@@ -100,118 +141,172 @@ with st.sidebar:
 
 st.markdown(f"## Cecafe Daily Registrations: {MONTHS[sel_m - 1]}'{str(sel_y)[2:]}")
 
-# --------------------------------------------------------------------------- daily table (Excel layout)
-dim_sel = calendar.monthrange(sel_y, sel_m)[1]
-cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
-days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
+t_daily, t_acc = st.tabs(["Daily", "Projection Accuracy"])
+
+with t_daily:
+    # --------------------------------------------------------------------------- daily table (Excel layout)
+    dim_sel = calendar.monthrange(sel_y, sel_m)[1]
+    cur = {c: month_series(df[c], sel_y, sel_m) for c in COMMS}
+    days = sorted(set(cur["Arabica"].index) | set(cur["Robusta"].index))
 
 
-def cell(v, bold=False, early=False):
-    return f"<td class='{'b' if bold else ''}{' early' if early else ''}'>{fmt(v)}</td>"
+    def cell(v, bold=False, early=False):
+        return f"<td class='{'b' if bold else ''}{' early' if early else ''}'>{fmt(v)}</td>"
 
 
-rows_html = ""
-prev = {c: 0.0 for c in COMMS}
-last_val = {c: 0.0 for c in COMMS}
-for d_ in days:
-    a, r = cur["Arabica"].get(d_), cur["Robusta"].get(d_)
-    chg = {}
-    for c, v in (("Arabica", a), ("Robusta", r)):
-        if v is not None and pd.notna(v):
-            chg[c] = v - prev[c]
-            prev[c] = v
-            last_val[c] = v
-        else:
-            chg[c] = None
-    chg_tot = None if chg["Arabica"] is None or chg["Robusta"] is None else chg["Arabica"] + chg["Robusta"]
-    cum_tot = None if a is None or r is None else a + r
-    pa = None if a is None else a / d_ * dim_sel          # linear month-end projection as of that day
-    pb = None if r is None else r / d_ * dim_sel
-    pt = None if pa is None or pb is None else pa + pb
-    rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
-                  + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
-                  + cell(a) + cell(r) + cell(cum_tot, True)
-                  + cell(pa, early=d_ <= 10) + cell(pb, early=d_ <= 10) + cell(pt, True, early=d_ <= 10) + "</tr>")
+    rows_html = ""
+    prev = {c: 0.0 for c in COMMS}
+    last_val = {c: 0.0 for c in COMMS}
+    for d_ in days:
+        a, r = cur["Arabica"].get(d_), cur["Robusta"].get(d_)
+        chg = {}
+        for c, v in (("Arabica", a), ("Robusta", r)):
+            if v is not None and pd.notna(v):
+                chg[c] = v - prev[c]
+                prev[c] = v
+                last_val[c] = v
+            else:
+                chg[c] = None
+        chg_tot = None if chg["Arabica"] is None or chg["Robusta"] is None else chg["Arabica"] + chg["Robusta"]
+        cum_tot = None if a is None or r is None else a + r
+        pa = None if a is None else a / d_ * dim_sel          # linear month-end projection as of that day
+        pb = None if r is None else r / d_ * dim_sel
+        pt = None if pa is None or pb is None else pa + pb
+        rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
+                      + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
+                      + cell(a) + cell(r) + cell(cum_tot, True)
+                      + cell(pa, early=d_ <= 10) + cell(pb, early=d_ <= 10) + cell(pt, True, early=d_ <= 10) + "</tr>")
 
-st.markdown("""
-<style>
-.dtab { width: auto; border-collapse: collapse; font-size: 11.5px; line-height: 1.15; background: #fff; }
-.dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
-.dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
-.dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
-.dtab .g3 { background: #e8f3ee; color: #0a2463; border: 1px solid #1a1a2e; }
-.dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
-.dtab .sub th { background: #0a2463; color: #fff; }
-.dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
-.dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
-.dtab td.b { font-weight: 700; background: #f6f7fb; }
-</style>""", unsafe_allow_html=True)
-st.markdown(
-    "<table class='dtab'>"
-    "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
-    "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
-    + rows_html + "</table>"
-    "<div class='side-note' style='margin-top:4px'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
-st.write("")
-
-
-# --------------------------------------------------------------------------- charts: Arabica row, Robusta row
-def render_charts(comm):
-    s = df[comm]
-    cur_s = month_series(s, sel_y, sel_m)
-    dim = calendar.monthrange(sel_y, sel_m)[1]
-    pr = project(cur_s, sel_y, sel_m)
-    c1, c2 = st.columns(2)
-
-    fig = go.Figure()
-    years = [y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty]
-    for i, y in enumerate(years):
-        h = month_series(s, y, sel_m).reindex(range(1, calendar.monthrange(y, sel_m)[1] + 1))
-        back = len(years) - i
-        col = HIST_COLORS[-back] if back <= len(HIST_COLORS) else GREY
-        fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers",
-                                 line=dict(color=col, width=2), marker=dict(size=5, symbol="x"),
-                                 connectgaps=connect))
-    if not cur_s.empty:
-        c = cur_s.reindex(range(1, dim + 1))
-        ad = adjusted_daily(cur_s)
-        fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9",
-                             opacity=0.85, yaxis="y2"))
-        fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
-                                 line=dict(color=NAVY, width=3.5),
-                                 marker=dict(size=8, color="#f2c200", line=dict(color=NAVY, width=1.5)),
-                                 connectgaps=connect))
-        if pr and pr[0] < dim:
-            fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
-                                     line=dict(color=NAVY, width=2, dash="dot"),
-                                     marker=dict(size=7, symbol="diamond")))
-        fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, max(ad.max() * 5, 1)],
-                                      showgrid=False, visible=False))
-    base_layout(fig, f"{comm}: {MONTHS[sel_m - 1]} vs same month, previous years")
-    ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
-    fig.update_yaxes(range=[0, ymax * 1.05], selector=dict(anchor="x"))   # zero line = bar baseline
-    with c1:
-        st.plotly_chart(fig, width="stretch")
-
-    fig2 = go.Figure()
-    seq, y, m = [], sel_y, sel_m
-    for _ in range(5):
-        seq.append((y, m))
-        m -= 1
-        if m == 0:
-            y, m = y - 1, 12
-    for k, ((yy, mm), col) in enumerate(zip(seq, [NAVY, RED, TEAL, AMBER, GREY])):
-        h = month_series(s, yy, mm)
-        if h.empty:
-            continue
-        h = h.reindex(range(1, calendar.monthrange(yy, mm)[1] + 1))
-        fig2.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
-                                  mode="lines+markers", line=dict(color=col, width=3.5 if k == 0 else 2),
-                                  marker=dict(size=7 if k == 0 else 5), connectgaps=connect))
-    base_layout(fig2, f"{comm}: {MONTHS[sel_m - 1]} {sel_y} vs last 4 months")
-    with c2:
-        st.plotly_chart(fig2, width="stretch")
+    st.markdown("""
+    <style>
+    .dtab { width: auto; border-collapse: collapse; font-size: 11.5px; line-height: 1.15; background: #fff; }
+    .dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
+    .dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
+    .dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
+    .dtab .g3 { background: #e8f3ee; color: #0a2463; border: 1px solid #1a1a2e; }
+    .dtab td.early { color: #b3b9c9; background: #f4f5f8; font-weight: 400; }
+    .dtab .sub th { background: #0a2463; color: #fff; }
+    .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
+    .dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
+    .dtab td.b { font-weight: 700; background: #f6f7fb; }
+    </style>""", unsafe_allow_html=True)
+    st.markdown(
+        "<table class='dtab'>"
+        "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
+        "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
+        + rows_html + "</table>"
+        "<div class='side-note' style='margin-top:4px'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
+    st.write("")
 
 
-for comm in COMMS:
-    render_charts(comm)
+    # --------------------------------------------------------------------------- charts: Arabica row, Robusta row
+    def render_charts(comm):
+        s = df[comm]
+        cur_s = month_series(s, sel_y, sel_m)
+        dim = calendar.monthrange(sel_y, sel_m)[1]
+        pr = project(cur_s, sel_y, sel_m)
+        c1, c2 = st.columns(2)
+
+        fig = go.Figure()
+        band = {}
+        for y in range(sel_y - LOOKBACK, sel_y):
+            hm = month_series(s, y, sel_m)
+            if not hm.empty:
+                band[y] = full_curve(hm, month_dim(y, sel_m)).reindex(range(1, dim + 1))
+        if len(band) >= 2:
+            bd = pd.DataFrame(band)
+            fig.add_trace(go.Scatter(x=bd.index, y=bd.max(axis=1), mode="lines", line=dict(width=0),
+                                     hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=bd.index, y=bd.min(axis=1), mode="lines", line=dict(width=0),
+                                     fill="tonexty", fillcolor="rgba(10,36,99,0.08)",
+                                     name=f"{len(band)}y min-max", hoverinfo="skip"))
+        years = [y for y in range(min_year, sel_y) if not month_series(s, y, sel_m).empty]
+        for i, y in enumerate(years):
+            h = month_series(s, y, sel_m).reindex(range(1, calendar.monthrange(y, sel_m)[1] + 1))
+            back = len(years) - i
+            col = HIST_COLORS[-back] if back <= len(HIST_COLORS) else GREY
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=str(y), mode="lines+markers",
+                                     line=dict(color=col, width=2), marker=dict(size=5, symbol="x"),
+                                     connectgaps=connect))
+        if not cur_s.empty:
+            c = cur_s.reindex(range(1, dim + 1))
+            ad = adjusted_daily(cur_s)
+            fig.add_trace(go.Bar(x=ad.index, y=ad.values, name="Adj daily", marker_color="#c9ced9",
+                                 opacity=0.85, yaxis="y2"))
+            fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
+                                     line=dict(color=NAVY, width=3.5),
+                                     marker=dict(size=8, color="#f2c200", line=dict(color=NAVY, width=1.5)),
+                                     connectgaps=connect))
+            if pr and pr[0] < dim:
+                fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
+                                         line=dict(color=NAVY, width=2, dash="dot"),
+                                         marker=dict(size=7, symbol="diamond")))
+            fig.update_layout(yaxis2=dict(overlaying="y", side="right", range=[0, max(ad.max() * 5, 1)],
+                                          showgrid=False, visible=False))
+        base_layout(fig, f"{comm}: {MONTHS[sel_m - 1]} vs same month, previous years")
+        ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
+        fig.update_yaxes(range=[0, ymax * 1.05], selector=dict(anchor="x"))   # zero line = bar baseline
+        with c1:
+            st.plotly_chart(fig, width="stretch")
+
+        fig2 = go.Figure()
+        seq, y, m = [], sel_y, sel_m
+        for _ in range(5):
+            seq.append((y, m))
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+        for k, ((yy, mm), col) in enumerate(zip(seq, [NAVY, RED, TEAL, AMBER, GREY])):
+            h = month_series(s, yy, mm)
+            if h.empty:
+                continue
+            h = h.reindex(range(1, calendar.monthrange(yy, mm)[1] + 1))
+            fig2.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
+                                      mode="lines+markers", line=dict(color=col, width=3.5 if k == 0 else 2),
+                                      marker=dict(size=7 if k == 0 else 5), connectgaps=connect))
+        base_layout(fig2, f"{comm}: {MONTHS[sel_m - 1]} {sel_y} vs last 4 months")
+        with c2:
+            st.plotly_chart(fig2, width="stretch")
+
+
+    for comm in COMMS:
+        render_charts(comm)
+
+
+# --------------------------------------------------------------------------- projection accuracy
+with t_acc:
+    scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
+                     label_visibility="collapsed")
+    st.markdown("<div class='card-desc'>Linear projection vs actual month-end, by day. "
+                "Uses only data known that day.</div>", unsafe_allow_html=True)
+    ac = st.columns(2)
+    for col_, comm in zip(ac, COMMS):
+        a = accuracy_table(df, comm)
+        if scope != "All months" and not a.empty:
+            a = a[a.month == sel_m]
+        with col_:
+            if a.empty:
+                st.info(f"{comm}: no complete months to test.")
+                continue
+            g = a.groupby("day")["err"].agg(miss=lambda v: v.abs().median(), bias="median",
+                                            lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9))
+            n_months = a[["year", "month"]].drop_duplicates().shape[0]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=g.index, y=g.hi, mode="lines", line=dict(width=0),
+                                     hoverinfo="skip", showlegend=False))
+            fig.add_trace(go.Scatter(x=g.index, y=g.lo, mode="lines", line=dict(width=0), fill="tonexty",
+                                     fillcolor="rgba(10,36,99,0.08)", name="80% of months"))
+            fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss (+ = too high)", mode="lines+markers",
+                                     line=dict(color=NAVY, width=3), marker=dict(size=6)))
+            fig.add_hline(y=0, line=dict(color=GREY, width=1))
+            base_layout(fig, f"{comm}: linear projection miss % by day ({n_months} months)", height=360)
+            fig.update_yaxes(ticksuffix="%", tickformat=".0f")
+            st.plotly_chart(fig, width="stretch")
+            body_ = ""
+            for d_ in (5, 10, 15, 20, 25):
+                if d_ in g.index:
+                    r = g.loc[d_]
+                    body_ += (f"<tr><td class='dt'>Day {d_}</td><td class='b'>{r.miss:.1f}%</td><td>{r.bias:+.1f}%</td>"
+                              f"<td>{r.lo:+.0f}% to {r.hi:+.0f}%</td></tr>")
+            st.markdown("<table class='dtab'><tr class='sub'><th>As of</th><th>Avg miss</th><th>Bias</th>"
+                        "<th>80% range</th></tr>" + body_ + "</table>", unsafe_allow_html=True)

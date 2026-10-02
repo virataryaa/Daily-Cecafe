@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Cecafe Daily", layout="wide")
+st.set_page_config(page_title="Cecafe Daily", layout="wide", initial_sidebar_state="collapsed")
 
 NAVY = "#0a2463"
 TEAL = "#1f8a9c"
@@ -75,6 +75,12 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .st-key-main div[role="radiogroup"] label:has(input:checked) { background: transparent !important; border-bottom: 3px solid #0a2463 !important; }
 .st-key-main div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
+.st-key-monthsel { display: flex; justify-content: flex-end; }
+.st-key-monthsel [data-baseweb="select"] { min-width: 210px; max-width: 250px; margin-left: auto; }
+.st-key-monthsel [data-baseweb="select"] > div { border-radius: 999px !important; border: 1.5px solid #0a2463 !important;
+    background: #ffffff !important; box-shadow: 0 1px 5px rgba(10,36,99,0.14); min-height: 40px; padding-left: 8px; }
+.st-key-monthsel [data-baseweb="select"] div, .st-key-monthsel [data-baseweb="select"] span { color: #0a2463 !important; font-weight: 600; }
+.st-key-monthsel [data-baseweb="select"] svg { fill: #0a2463 !important; }
 .st-key-nav div[role="radiogroup"] label:first-of-type div[data-testid="stMarkdownContainer"] p { color: #1f8a9c !important; font-weight: 700; }
 .st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) { background: #1f8a9c !important; }
 .st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
@@ -237,27 +243,33 @@ def sidebar_stats(rows):
 df = load()
 last_date = df.dropna(how="all").index.max()
 
+# Widgets that are not drawn in a run lose their value (e.g. the Daily controls while Monthly is open).
+# Keep a copy of the ones we care about and put it back before the widgets are created.
+KEEP = ["main_tab", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_comm", "mc_unit",
+        "mc_span", "mc_mode", "mc_view", "mc_roll", "mc_pj_method"]
+for _k in KEEP:
+    if _k not in st.session_state and f"_keep_{_k}" in st.session_state:
+        st.session_state[_k] = st.session_state[f"_keep_{_k}"]
+
 TODAY = pd.Timestamp.today()
 # months with data, plus the running calendar month so its first day can be entered
 ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month)})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
-_daily = st.session_state.get("main_tab", "Daily Cecafe") == "Daily Cecafe"      # sidebar filters are Daily-only
 with st.sidebar:
     st.markdown("<div class='sb-title'>Cecafe</div>", unsafe_allow_html=True)
-    if _daily:
-        st.markdown("<div class='sb-caption'>Brazil daily coffee export registrations, Cecafe. "
-                    "Cumulative month-to-date, bags.</div>", unsafe_allow_html=True)
-        st.subheader("Filters")
-        sel = st.selectbox("Month", labels[::-1][:12], index=0)
-    else:
-        st.markdown("<div class='sb-caption'>Brazil monthly coffee exports by crop year (Jul-Jun), bags.</div>",
-                    unsafe_allow_html=True)
-        sel = labels[::-1][0]
-    sel_y, sel_m = ym_all[labels.index(sel)]
-    MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
-    first_year = int(df.index.year.min())
-    min_year = first_year                                      # History page: all years
+    st.markdown("<div class='sb-caption'>Brazil coffee exports: daily registrations and dispatched (Daily Cecafe), "
+                "crop-year monthly exports (Monthly Cecafe). Bags.</div>", unsafe_allow_html=True)
+
+# the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
+MONTH_CHOICES = labels[::-1][:12]                              # newest first, last 12 months
+if st.session_state.get("month_sel") not in MONTH_CHOICES:
+    st.session_state["month_sel"] = MONTH_CHOICES[0]
+sel = st.session_state["month_sel"]
+sel_y, sel_m = ym_all[labels.index(sel)]
+MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"
+first_year = int(df.index.year.min())
+min_year = first_year                                          # History page: all years
 
 
 
@@ -1006,10 +1018,14 @@ with st.container(key="main"):
 if main == "Daily Cecafe":
     st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pill'>{MON}</span></div>",
                 unsafe_allow_html=True)
-    # one row of pill tabs; a radio so only the open page is computed
-    with st.container(key="nav"):
+    # one row: pill tabs on the left (a radio, so only the open page is computed), month dropdown on the right
+    nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
+    with nav_l, st.container(key="nav"):
         page = st.radio("Page", ["Entry", "Registrations", "Dispatched", "Advanced Study"], horizontal=True,
                         label_visibility="collapsed", key="page")
+    with nav_r, st.container(key="monthsel"):
+        st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
+                     format_func=lambda s: f"Month  |  {s}")
     if page == "Entry":
         le, ri = st.columns([1, 1.05], gap="medium")
         with le, st.container(border=True):
@@ -1044,3 +1060,7 @@ if main == "Daily Cecafe":
 elif main == "Monthly Cecafe":
     import monthly
     monthly.render()
+
+for _k in KEEP:                                                # remember the values for the next run
+    if _k in st.session_state:
+        st.session_state[f"_keep_{_k}"] = st.session_state[_k]

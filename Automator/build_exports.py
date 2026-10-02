@@ -2,7 +2,8 @@
 
 Each sheet: rows = crop year ("11/12" = Jul 2011 - Jun 2012), columns = Jul..Jun, values = bags.
 Output (long): commodity, crop_year, cm (crop month 1-12, 1 = July), bags
-Re-run whenever the sheets change:  python Automator/build_exports.py
+One-off seed. From now on the dashboard "Input" view edits cecafe_exports.csv directly (GitHub + local), so
+do NOT re-run this unless you want the Excel values to overwrite the file.
 """
 import shutil, tempfile
 from pathlib import Path

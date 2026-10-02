@@ -4,6 +4,8 @@ Monthly (seasonal) - Cumulative - YTD - Rolling - Tabular view, with the optiona
 TDM Pro Comprehensive overview page (views/overview.py); data = Database/cecafe_exports.csv, built from the
 "... Exports" sheets of Cecafe Daily History.xlsx by Automator/build_exports.py.
 """
+import io
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,9 +13,19 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import ghstore as gh
+
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_exports.csv"
 MONTHS = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"]   # crop month 1-12
-COMMS = ["Arabica", "Robusta", "Soluble", "Total"]
+ROOT = Path(__file__).resolve().parent.parent
+SETTINGS = ROOT / "Database" / "cecafe_settings.json"
+EXPORTS_PATH, SETTINGS_PATH = "Database/cecafe_exports.csv", "Database/cecafe_settings.json"      # paths in the repo
+TYPES = {"Arabica": ["Arabica"], "Robusta": ["Robusta"], "Soluble": ["Soluble"],
+         "Arabica + Robusta": ["Arabica", "Robusta"], "Robusta + Soluble": ["Robusta", "Soluble"],
+         "Arabica + Robusta + Soluble": ["Arabica", "Robusta", "Soluble"]}
+COMMS = list(TYPES)
+BASE = ["Arabica", "Robusta", "Soluble"]
+TZ = "Europe/Amsterdam"
 UNITS = {"'000 bags": (1e-3, ",.0f"), "Bags": (1.0, ",.0f"), "Million bags": (1e-6, ",.2f")}
 PROJ_METHODS = ["Off", "YoY %", "Seasonal share", "Monthly value", "Full-year target"]
 
@@ -144,18 +156,34 @@ def load() -> pd.DataFrame:
     return pd.read_csv(DATA)
 
 
-def pivot(raw: pd.DataFrame, comm: str, factor: float) -> pd.DataFrame:
-    """crop year x crop month (1-12), in the chosen unit. NaN = no data. Total = all three types, only where all exist."""
+@st.cache_data(ttl=600)
+def load_settings() -> dict:
+    s = {"soluble_gbe": 2.1}
+    try:
+        s.update(json.loads(SETTINGS.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        pass
+    return s
+
+
+def pivot(raw: pd.DataFrame, comm: str, factor: float, gbe: float) -> pd.DataFrame:
+    """crop year x crop month (1-12), in the chosen unit. NaN = no data.
+    Combinations add the types month by month; Soluble is multiplied by the GBE multiplier first.
+    A cell is NaN if any type in the combination is missing there."""
+    types = TYPES[comm]
+
     def one(c):
         d = raw[raw["commodity"] == c]
-        return (d.pivot_table(index="crop_year", columns="cm", values="bags", aggfunc="sum")
-                  .reindex(columns=range(1, 13)))
-    if comm == "Total":
-        a, r, s = one("Arabica"), one("Robusta"), one("Soluble")
-        idx = a.index.union(r.index).union(s.index)
-        piv = a.reindex(idx) + r.reindex(idx) + s.reindex(idx)              # NaN if any type is missing
-    else:
-        piv = one(comm)
+        p = (d.pivot_table(index="crop_year", columns="cm", values="bags", aggfunc="sum")
+               .reindex(columns=range(1, 13)))
+        return p * (gbe if c == "Soluble" and len(types) > 1 else 1.0)
+    frames = [one(c) for c in types]
+    idx = frames[0].index
+    for f in frames[1:]:
+        idx = idx.union(f.index)
+    piv = frames[0].reindex(idx)
+    for f in frames[1:]:
+        piv = piv + f.reindex(idx)
     return (piv.dropna(how="all") * factor).sort_index()
 
 
@@ -168,35 +196,45 @@ def month_dates(cy: str, cm: int) -> pd.Timestamp:
 def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
+    gbe = float(load_settings()["soluble_gbe"])
 
     with st.container(border=True):
-        c1, c2, c3, c4, c5 = st.columns([3.4, 2.5, 1.9, 2.1, 1.6], vertical_alignment="center")
-        comm = c1.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key="mc_comm")
-        unit = c2.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key="mc_unit")
-        span = c3.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
-                        key="mc_span")
-        mode = c4.radio("View", ["Visuals", "Tabular view"], horizontal=True, label_visibility="collapsed",
+        a1, a2 = st.columns([2.6, 8], vertical_alignment="center")
+        mode = a1.radio("View", ["Visuals", "Tabular view", "Input"], horizontal=True, label_visibility="collapsed",
                         key="mc_mode")
-        factor, fmt = UNITS[unit]
-        piv = pivot(raw, comm, factor)
-        if piv.empty:
-            st.info("No data for this selection.")
-            return
+        if mode == "Input":
+            a2.markdown("<div class='card-desc' style='margin:0'>Edit any month. Charts and tables use the same data.</div>",
+                        unsafe_allow_html=True)
+        else:
+            comm = a2.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key="mc_comm")
+            b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
+            unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key="mc_unit")
+            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
+                            key="mc_span")
+    if mode == "Input":
+        render_input(raw, gbe)
+        return
 
-        years = piv.index.tolist()
-        latest_cy = years[-1]
-        prev_cy = years[-2] if len(years) >= 2 else None
-        valid = piv.loc[latest_cy].dropna().index
-        common = int(valid.max()) if len(valid) else 12
-        ref = [y for y in years if y != latest_cy][-10:]                  # last 10 complete crop years
-        ytd = piv[list(range(1, common + 1))].sum(axis=1, min_count=1)
-        yoy = ytd.pct_change() * 100
-        cut = f"{MONTHS[0]}–{MONTHS[common - 1]}"
-        n_show = {"Last 5": 5, "Last 10": 10, "All": len(years)}[span]
-        shown = years[-n_show:]
-        sc = f"{comm} · {unit}"
-        with c5:
-            proj = _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt)
+    factor, fmt = UNITS[unit]
+    piv = pivot(raw, comm, factor, gbe)
+    if piv.empty:
+        st.info("No data for this selection.")
+        return
+
+    years = piv.index.tolist()
+    latest_cy = years[-1]
+    prev_cy = years[-2] if len(years) >= 2 else None
+    valid = piv.loc[latest_cy].dropna().index
+    common = int(valid.max()) if len(valid) else 12
+    ref = [y for y in years if y != latest_cy][-10:]                  # last 10 complete crop years
+    ytd = piv[list(range(1, common + 1))].sum(axis=1, min_count=1)
+    yoy = ytd.pct_change() * 100
+    cut = f"{MONTHS[0]}–{MONTHS[common - 1]}"
+    n_show = {"Last 5": 5, "Last 10": 10, "All": len(years)}[span]
+    shown = years[-n_show:]
+    sc = f"{comm} · {unit}" + (f" · Soluble x{gbe:g} GBE" if "Soluble" in TYPES[comm] and len(TYPES[comm]) > 1 else "")
+    with b3:
+        proj = _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt)
 
     ytd_now = ytd.get(latest_cy)
     yo = yoy.get(latest_cy)
@@ -397,3 +435,205 @@ def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt):
             rows.append(t_row(f"{name} L{len(ref)}Y", cells, "ref"))
 
     t_render(hdr, rows, corner="Crop year")
+
+
+# ── Input form: edit any month, saved to GitHub (and the local copy), with a log ──────────────────────────────
+def _num(txt):
+    if txt is None or (isinstance(txt, float) and pd.isna(txt)):
+        return None
+    if isinstance(txt, (int, float)):
+        return float(txt)
+    txt = str(txt).replace(",", "").strip()
+    return float(txt) if txt else None
+
+
+def _fmt0(v):
+    return "" if v is None or pd.isna(v) else f"{v:,.0f}"
+
+
+def _next_cy(cy: str) -> str:
+    a, b = int(cy[:2]), int(cy[3:])
+    return f"{(a + 1) % 100:02d}/{(b + 1) % 100:02d}"
+
+
+def _edit_grid(raw: pd.DataFrame, comm: str, crop_years: list) -> pd.DataFrame:
+    d = raw[raw["commodity"] == comm].pivot_table(index="crop_year", columns="cm", values="bags", aggfunc="sum")
+    d = d.reindex(index=crop_years, columns=range(1, 13))
+    g = pd.DataFrame({MONTHS[m - 1]: [_fmt0(d.loc[cy, m]) for cy in crop_years] for m in range(1, 13)}, index=crop_years)
+    g["Total"] = [_fmt0(d.loc[cy].sum()) if d.loc[cy].notna().any() else "" for cy in crop_years]     # read-only
+    g.index.name = "Crop year"
+    return g
+
+
+def _changes(raw, comm, before: pd.DataFrame, after: pd.DataFrame) -> list:
+    """[(comm, crop year, crop month, old, new)] for every edited cell. Raises ValueError on non-numbers."""
+    out = []
+    for cy in before.index:
+        for m in range(1, 13):
+            col = MONTHS[m - 1]
+            old, new = _num(before.loc[cy, col]), _num(after.loc[cy, col])
+            if old != new:
+                out.append((comm, cy, m, old, new))
+    return out
+
+
+def _save_exports(changes: list, who: str = "dashboard"):
+    lines = [f"{c} {cy} {MONTHS[m - 1]}: {_fmt0(o) or '-'} -> {_fmt0(n) or '-'}" for c, cy, m, o, n in changes]
+    msg = f"Monthly exports | {len(changes)} change(s)\n\n" + "\n".join(lines)
+
+    def apply(text):
+        d = pd.read_csv(io.StringIO(text))
+        for c, cy, m, o, n in changes:
+            hit = (d["commodity"] == c) & (d["crop_year"] == cy) & (d["cm"] == m)
+            d = d[~hit]
+            if n is not None:
+                d = pd.concat([d, pd.DataFrame([{"commodity": c, "crop_year": cy, "cm": m, "bags": n}])])
+        d["_o"] = d["commodity"].map({c: i for i, c in enumerate(BASE)})
+        d = d.sort_values(["_o", "crop_year", "cm"]).drop(columns="_o")
+        d["bags"] = d["bags"].round().astype("int64")
+        return d.to_csv(index=False, lineterminator="\n"), None
+    new_text, _ = gh.commit(EXPORTS_PATH, apply, msg)
+    with open(DATA, "w", encoding="utf-8", newline="") as f:             # local copy, so the disc has it too
+        f.write(new_text)
+    load.clear()
+
+
+def _save_gbe(old: float, new: float):
+    msg = f"Setting | Soluble GBE multiplier: {old:g} -> {new:g}"
+    text, _ = gh.commit(SETTINGS_PATH, lambda _t: (json.dumps({"soluble_gbe": new}, indent=2) + "\n", None), msg)
+    with open(SETTINGS, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    load_settings.clear()
+
+
+def render_input(raw: pd.DataFrame, gbe: float):
+    if st.session_state.get("mc_flash"):
+        st.toast(st.session_state.pop("mc_flash"))
+    editable = gh.enabled()
+    all_cy = sorted(raw["crop_year"].unique())
+    nxt = _next_cy(all_cy[-1])
+    show_n = st.radio("Crop years shown", ["Last 6", "All"], horizontal=True, label_visibility="collapsed", key="mc_edit_n")
+    cy_list = (all_cy + [nxt])[-(7 if show_n == "Last 6" else len(all_cy) + 1):][::-1]          # newest first
+
+    with st.container(border=True):
+        st.markdown("<div class='card-title'>Monthly exports, bags</div>"
+                    "<div class='card-desc'>Crop years Jul to Jun, newest first (the next crop year is ready at the top). "
+                    + ("Click a cell, type, then Save. Blank removes the value."
+                       if editable else "Read-only: add github_token in Secrets to edit.") + "</div>",
+                    unsafe_allow_html=True)
+        cfg = {MONTHS[m - 1]: st.column_config.TextColumn(MONTHS[m - 1], alignment="right", width=74) for m in range(1, 13)}
+        cfg["Total"] = st.column_config.TextColumn("Total", alignment="right", width=88, disabled=True)
+        cfg["_index"] = st.column_config.TextColumn("Crop year", width=92)
+        before, after, keys = {}, {}, []
+        for comm in BASE:
+            g = _edit_grid(raw, comm, cy_list)
+            key = f"mc_edit_{comm}_{show_n}"
+            keys.append(key)
+            st.markdown(f"<div class='grid-head'>{comm}</div>", unsafe_allow_html=True)
+            before[comm] = g
+            shown = g.style.set_properties(subset=["Total"], **{"background-color": "#e9ecf2", "font-weight": "600"})
+            after[comm] = st.data_editor(shown, column_config=cfg, disabled=not editable, width="content",
+                                         row_height=26, height=len(g) * 26 + 48, key=key)
+        if editable:
+            try:
+                changes = [c for comm in BASE for c in _changes(raw, comm, before[comm], after[comm])]
+            except ValueError:
+                st.error("Numbers only (commas are fine).")
+                changes = []
+            neg = [c for c in changes if c[4] is not None and c[4] < 0]
+            if neg:
+                st.error("Values cannot be negative.")
+                changes = []
+            bc = st.columns([1, 1, 4], vertical_alignment="center")
+            save = bc[0].button("Save", type="primary", disabled=not changes, width="stretch", key="mc_save")
+            if bc[1].button("Undo", disabled=not changes, width="stretch", key="mc_undo"):
+                for k in keys:
+                    st.session_state.pop(k, None)
+                st.session_state.pop("mc_pending", None)
+                st.rerun()
+            if changes:
+                bc[2].markdown(f"<div class='card-desc' style='margin:0'>{len(changes)} unsaved cell(s).</div>",
+                               unsafe_allow_html=True)
+            if save:
+                notes = []
+                for c, cy, m, o, n in changes:                       # extra-zero check against the type's biggest month
+                    cap = raw.loc[raw["commodity"] == c, "bags"].max()
+                    if n is not None and cap and n > 1.6 * cap:
+                        notes.append(f"{c} {cy} {MONTHS[m - 1]} {n:,.0f} is far above anything seen (max {cap:,.0f}). Extra zero?")
+                if not notes:
+                    _do_save(changes, keys)
+                st.session_state["mc_pending"] = notes
+            if st.session_state.get("mc_pending") and changes:
+                cc = st.columns([3.2, 0.6, 0.6, 1.6], vertical_alignment="center")
+                cc[0].warning(" ".join(st.session_state["mc_pending"]) + " Save anyway?")
+                if cc[1].button("Override", type="primary", width="stretch", key="mc_override"):
+                    _do_save(changes, keys)
+                if cc[2].button("Cancel", width="stretch", key="mc_cancel"):
+                    st.session_state.pop("mc_pending", None)
+                    st.rerun()
+
+    # Soluble GBE multiplier, further down
+    with st.container(border=True):
+        st.markdown("<div class='card-title'>Soluble GBE multiplier</div>"
+                    "<div class='card-desc'>Soluble is multiplied by this (green bean equivalent) before it is added to "
+                    "Arabica or Robusta.</div>", unsafe_allow_html=True)
+        gc = st.columns([1.2, 1, 5], vertical_alignment="center")
+        newg = gc[0].number_input("GBE multiplier", min_value=0.1, max_value=10.0, value=float(gbe), step=0.05,
+                                  format="%.2f", label_visibility="collapsed", key="mc_gbe", disabled=not editable)
+        if gc[1].button("Save multiplier", disabled=(not editable) or abs(newg - gbe) < 1e-9, width="stretch",
+                        key="mc_gbe_save"):
+            try:
+                with st.spinner("Saving..."):
+                    _save_gbe(gbe, round(float(newg), 4))
+            except (gh.GitHubError, Exception) as ex:
+                st.error(f"GitHub save failed: {ex}")
+            else:
+                st.session_state["mc_flash"] = f"Soluble GBE multiplier set to {newg:g}."
+                st.rerun()
+
+    if editable:
+        with st.expander("Save history", expanded=False):
+            _history()
+
+
+def _do_save(changes, keys):
+    try:
+        with st.spinner("Saving..."):
+            _save_exports(changes)
+    except (gh.GitHubError, Exception) as ex:
+        st.error(f"GitHub save failed: {ex}")
+        return
+    for k in keys:
+        st.session_state.pop(k, None)
+    st.session_state.pop("mc_pending", None)
+    st.session_state["mc_flash"] = f"Saved {len(changes)} change(s)."
+    st.rerun()
+
+
+def _history():
+    try:
+        items = gh.history(EXPORTS_PATH) + gh.history(SETTINGS_PATH)
+    except Exception as ex:
+        st.markdown(f"<div class='card-desc'>Not available: {ex}</div>", unsafe_allow_html=True)
+        return
+    rows = []
+    for ts, msg in sorted(items, key=lambda x: x[0], reverse=True):
+        when = pd.Timestamp(ts).tz_convert(TZ)
+        first, _, body = msg.partition("\n")
+        if first.startswith("Monthly exports |"):
+            for ln in [x for x in body.splitlines() if x.strip()]:
+                what, _, vals = ln.partition(": ")
+                old, _, new = vals.partition(" -> ")
+                rows.append((when, what, old, new, "Dashboard"))
+        elif first.startswith("Setting |"):
+            what, _, vals = first[len("Setting | "):].partition(": ")
+            old, _, new = vals.partition(" -> ")
+            rows.append((when, what, old, new, "Dashboard"))
+        else:
+            rows.append((when, first[:60], "", "", "Local push"))
+    rows = rows[:20]
+    body = "".join(f"<tr><td class='ts'>{w:%d %b %H:%M}</td><td class='dt'>{what}</td><td>{o}</td><td class='b'>{n}</td>"
+                   f"<td class='ts'>{via}</td></tr>" for w, what, o, n, via in rows)
+    st.markdown("<div class='card-desc'>Latest 20 changes, Amsterdam time (CET).</div>"
+                "<table class='dtab'><tr class='sub'><th>Saved at</th><th>What</th><th>Old</th><th>New</th><th>Via</th></tr>"
+                f"{body}</table>", unsafe_allow_html=True)

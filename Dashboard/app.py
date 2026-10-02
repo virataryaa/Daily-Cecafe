@@ -20,6 +20,7 @@ GREY = "#8a94a8"
 OTHER_YEARS = [GREY, AMBER, GREEN, TEAL]               # older years, hidden by default (click legend to show)
 
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_daily.csv"
+PCT_HIST = Path(__file__).resolve().parent.parent / "Database" / "dispatched_pct_history.csv"
 COMMS = ["Arabica", "Robusta"]                          # charts + accuracy (have history)
 ALL = ["Arabica", "Robusta", "Soluble"]                 # table + entry (Soluble from Oct 2026)
 DISP = {c: f"{c} Dispatched" for c in ALL}               # dispatched, cumulative MTD (from Oct 2026)
@@ -572,6 +573,86 @@ def render_visuals():
 # ---------------------------------------------------------------------------------------------
 # TAB: PROJECTION ACCURACY
 # ---------------------------------------------------------------------------------------------
+@st.cache_data(ttl=600)
+def pct_history() -> pd.Series:
+    """Dispatched / Registered (all types together) from the desk Excel, Feb-Sep 2026."""
+    if not PCT_HIST.exists():
+        return pd.Series(dtype=float)
+    return pd.read_csv(PCT_HIST, parse_dates=["date"]).set_index("date")["pct"]
+
+
+def pct_live(data: pd.DataFrame, kind: str) -> pd.Series:
+    """Dispatched / Registered per date from the entry table. kind = Total or one type. Types need both numbers."""
+    types = ALL if kind == "Total" else [kind]
+    reg = pd.concat([data[c] for c in types], axis=1)
+    dis = pd.concat([data[DISP[c]] for c in types], axis=1)
+    ok = reg.notna().values & dis.notna().values                  # only types that have both numbers that day
+    num = (dis.fillna(0).values * ok).sum(axis=1)
+    den = (reg.fillna(0).values * ok).sum(axis=1)
+    out = pd.Series(num / den.clip(min=1e-9), index=data.index)
+    return out[(den > 0) & ok.any(axis=1)]
+
+
+def pct_by_month(kind: str) -> dict:
+    """{(year, month): Series(day -> fraction)}. Excel history first, live entries overwrite per date."""
+    s = pct_live(df, kind)
+    if kind == "Total":
+        s = pd.concat([pct_history(), s])
+        s = s[~s.index.duplicated(keep="last")].sort_index()
+    return {(y, m): g.set_axis(g.index.day) for (y, m), g in s.groupby([s.index.year, s.index.month])}
+
+
+def render_dispatched():
+    kind = st.radio("Type", ["Total", *ALL], horizontal=True, label_visibility="collapsed", key="pct_kind")
+    connect = st.toggle("Connect gaps", value=True, key="pct_connect")
+    months = pct_by_month(kind)
+    if not months:
+        st.info("No dispatched numbers yet. Add them in the Entry tab (Disp columns)." if kind != "Total"
+                else "No data yet.")
+        return
+    seq, y, m = [], sel_y, sel_m
+    for _ in range(8):                                           # selected month + 7 before it
+        seq.append((y, m))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    seq = [ym for ym in seq if ym in months]
+    if not seq:
+        st.info(f"No dispatched % for {MON} or the 7 months before it yet.")
+        return
+    palette = [NAVY, RED, TEAL, AMBER, GREEN, GREY, "#7a86a8", "#b98fc0"]
+    fig = go.Figure()
+    for k, (yy, mm) in enumerate(seq):
+        h = months[(yy, mm)].reindex(range(1, month_dim(yy, mm) + 1))
+        first = (yy, mm) == (sel_y, sel_m)
+        fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}", mode="lines+markers",
+                                 line=dict(color=palette[k % len(palette)], width=3.5 if first else 1.8),
+                                 marker=dict(size=7 if first else 4), connectgaps=connect))
+    chart_layout(fig, height=480, yaxis=dict(tickformat=".0%", hoverformat=".1%", range=[0, 1.02]))
+    bottom_legend(fig)
+    with st.container(border=True):
+        st.markdown(f"<div class='card-title'>Dispatched / Registered <span class='pill'>{kind}</span></div>"
+                    "<div class='card-desc'>Daily, cumulative month-to-date. History from the desk Excel; "
+                    "from Oct'26 it is computed from the Entry table.</div>", unsafe_allow_html=True)
+        st.plotly_chart(fig, width="stretch")
+
+    # day x month table, like the Excel sheet
+    cols = [ym for ym in reversed(seq)]
+    body = ""
+    for d_ in range(1, 32):
+        body += f"<tr><td class='dt'>{d_}</td>"
+        for ym in cols:
+            v = months[ym].get(d_)
+            body += (f"<td class='{'b' if ym == (sel_y, sel_m) else ''}'>"
+                     f"{'' if v is None or pd.isna(v) else f'{v:.0%}'}</td>")
+        body += "</tr>"
+    head = "".join(f"<th>{MONTHS[mm - 1]}'{str(yy)[2:]}</th>" for yy, mm in cols)
+    with st.container(border=True):
+        st.markdown("<div class='card-title'>By day</div><div class='card-desc'>Blank = not published that day.</div>"
+                    f"<div style='overflow-x:auto'><table class='dtab'><tr class='sub'><th>Day</th>{head}</tr>{body}</table></div>",
+                    unsafe_allow_html=True)
+
+
 def render_accuracy():
     scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
                      label_visibility="collapsed", key="acc_scope")
@@ -808,7 +889,7 @@ st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pi
             unsafe_allow_html=True)
 # one row of pill tabs; a radio so only the open page is computed
 with st.container(key="nav"):
-    page = st.radio("Page", ["Entry", "Seasonality", "History", "Projection Accuracy"], horizontal=True,
+    page = st.radio("Page", ["Entry", "Seasonality", "History", "Dispatched %", "Projection Accuracy"], horizontal=True,
                     label_visibility="collapsed", key="page")
 if page == "Entry":
     le, ri = st.columns([1, 1.05], gap="medium")
@@ -829,5 +910,15 @@ elif page == "Seasonality":
     render_visuals()
 elif page == "History":
     render_history_tables()
+elif page == "Dispatched %":
+    render_dispatched()
 else:
     render_accuracy()
+    st.markdown(
+        "<div class='card-desc' style='margin-top:14px; line-height:1.6'><b>How this is made.</b> "
+        "For every past month that is complete, we take the linear projection as it stood on each day "
+        "(registered so far &divide; day number &times; days in the month) and compare it with that month's real "
+        "final total. Miss % = projection &divide; actual &minus; 1. Only numbers known on that day are used. "
+        "The dark line is the typical (median) miss for that day across all months; the shaded band holds the "
+        "middle 80% of months. In the table, <i>Avg miss</i> is the typical size of the error and <i>Bias</i> is its "
+        "direction (+ means the projection was too high).</div>", unsafe_allow_html=True)

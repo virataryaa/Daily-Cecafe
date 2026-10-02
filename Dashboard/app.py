@@ -125,19 +125,13 @@ for d_ in days:
             chg[c] = None
     chg_tot = None if chg["Arabica"] is None or chg["Robusta"] is None else chg["Arabica"] + chg["Robusta"]
     cum_tot = None if a is None or r is None else a + r
+    pa = None if a is None else a / d_ * dim_sel          # linear month-end projection as of that day
+    pb = None if r is None else r / d_ * dim_sel
+    pt = None if pa is None or pb is None else pa + pb
     rows_html += (f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
                   + cell(chg["Arabica"]) + cell(chg["Robusta"]) + cell(chg_tot, True)
-                  + cell(a) + cell(r) + cell(cum_tot, True) + "</tr>")
-
-# linear month-end projection row
-proj_cells = ""
-proj_vals = {}
-for c in COMMS:
-    pr_ = project(cur[c], sel_y, sel_m)
-    proj_vals[c] = pr_[2] if pr_ else None
-tot_p = None if None in proj_vals.values() else sum(proj_vals.values())
-proj_row = (f"<tr class='proj'><td class='dt'>Month-end</td><td colspan='3' class='note'>linear projection</td>"
-            + cell(proj_vals["Arabica"]) + cell(proj_vals["Robusta"]) + cell(tot_p, True) + "</tr>")
+                  + cell(a) + cell(r) + cell(cum_tot, True)
+                  + cell(pa) + cell(pb) + cell(pt, True) + "</tr>")
 
 st.markdown("""
 <style>
@@ -145,18 +139,17 @@ st.markdown("""
 .dtab th { text-align: center; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
 .dtab .g1 { background: #fff; color: #1a1a2e; border: 1px solid #1a1a2e; }
 .dtab .g2 { background: #b8c4d9; color: #0a2463; border: 1px solid #1a1a2e; }
+.dtab .g3 { background: #e8f3ee; color: #0a2463; border: 1px solid #1a1a2e; }
 .dtab .sub th { background: #0a2463; color: #fff; }
 .dtab td { text-align: right; padding: 1px 8px; border-bottom: 1px solid #eef0f6; white-space: nowrap; }
 .dtab td.dt { text-align: center; background: #f0f2f8; color: #1a1a2e; }
 .dtab td.b { font-weight: 700; background: #f6f7fb; }
-.dtab tr.proj td { background: #e8f3ee; font-weight: 700; color: #0a2463; border-top: 2px solid #0a2463; }
-.dtab td.note { text-align: center; font-weight: 400; font-style: italic; color: #5a6688; }
 </style>""", unsafe_allow_html=True)
 st.markdown(
     "<table class='dtab'>"
-    "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th></tr>"
-    "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
-    + rows_html + proj_row + "</table>", unsafe_allow_html=True)
+    "<tr><th></th><th colspan='3' class='g1'>Change with Previous</th><th colspan='3' class='g2'>Cumulative Current Month</th><th colspan='3' class='g3'>Linear Month-end</th></tr>"
+    "<tr class='sub'><th>Until</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th><th>Arabica</th><th>Robusta</th><th>Total</th></tr>"
+    + rows_html + "</table>", unsafe_allow_html=True)
 st.write("")
 
 

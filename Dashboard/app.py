@@ -323,12 +323,30 @@ GH_API = f"https://api.github.com/repos/{REPO}/contents/{REPO_PATH}"
 
 
 def gh_headers():
-    return {"Authorization": f"Bearer {st.secrets['github_token']}", "Accept": "application/vnd.github+json"}
+    tok = str(st.secrets["github_token"]).strip().strip('"').strip("'")
+    return {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+
+
+class GitHubError(Exception):
+    pass
+
+
+def gh_check(r):
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("message", "")
+        except ValueError:
+            msg = r.text[:200]
+        hint = {401: "token is wrong or expired - re-paste github_token in Secrets",
+                403: "token has no write access - give it Contents: Read and write on Daily-Cecafe",
+                404: "token cannot see the Daily-Cecafe repo - add this repo to the token",
+                409: "file changed meanwhile - press Save again"}.get(r.status_code, "")
+        raise GitHubError(f"GitHub {r.status_code}: {msg}. {hint}")
 
 
 def gh_read():
     r = requests.get(GH_API, headers=gh_headers(), params={"ref": "main"}, timeout=20)
-    r.raise_for_status()
+    gh_check(r)
     j = r.json()
     return pd.read_csv(io.StringIO(base64.b64decode(j["content"]).decode("utf-8"))), j["sha"]
 
@@ -337,7 +355,7 @@ def gh_write(frame: pd.DataFrame, sha: str, msg: str):
     body = {"message": msg, "branch": "main", "sha": sha,
             "content": base64.b64encode(frame.to_csv(index=False, lineterminator="\n").encode()).decode()}
     r = requests.put(GH_API, headers=gh_headers(), json=body, timeout=20)
-    r.raise_for_status()
+    gh_check(r)
 
 
 def parse_num(txt):
@@ -374,7 +392,11 @@ with t_entry:
             elif va is None and vr is None:
                 errors.append("Enter at least one number.")
             if not errors:
-                cur_csv, sha = gh_read()
+                try:
+                    cur_csv, sha = gh_read()
+                except (GitHubError, requests.RequestException) as ex:
+                    st.error(str(ex))
+                    st.stop()
                 cur_csv["date"] = pd.to_datetime(cur_csv["date"])
                 d0 = pd.Timestamp(e_date)
                 same_m = cur_csv[(cur_csv.date.dt.year == d0.year) & (cur_csv.date.dt.month == d0.month)
@@ -395,7 +417,7 @@ with t_entry:
                 cur_csv["date"] = cur_csv["date"].dt.strftime("%Y-%m-%d")
                 try:
                     gh_write(cur_csv, sha, f"Entry {d0:%Y-%m-%d} via dashboard")
-                except requests.HTTPError as ex:
+                except (GitHubError, requests.RequestException) as ex:
                     st.error(f"GitHub save failed: {ex}")
                 else:
                     cur_csv.to_csv(DATA, index=False, lineterminator="\n")   # show it now, before redeploy

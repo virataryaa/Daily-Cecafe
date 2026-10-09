@@ -226,15 +226,13 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
-    if st.session_state.get("mc_page") in ("Charts", "Table"):        # the two used to be separate sections
+    if st.session_state.get("mc_page") in ("Charts", "Table", "Advanced Study"):   # sections that no longer exist
         st.session_state["mc_page"] = "Charts & Table"
     with st.container(key="nav"):                                    # same pill row as Daily; Entry first
-        page = st.radio("Section", ["Entry", "Charts & Table", "Advanced Study"], horizontal=True,
+        page = st.radio("Section", ["Entry", "Charts & Table"], horizontal=True,
                         label_visibility="collapsed", key="mc_page")
     if page == "Entry":
         render_input(raw, gbe)
-    elif page == "Advanced Study":
-        st.markdown("<div class='card-desc' style='margin-top:12px'>Nothing here yet.</div>", unsafe_allow_html=True)
     else:
         _views(raw, gbe, page)
 

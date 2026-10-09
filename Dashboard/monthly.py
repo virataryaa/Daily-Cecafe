@@ -17,6 +17,9 @@ import ghstore as gh
 
 DATA = Path(__file__).resolve().parent.parent / "Database" / "cecafe_exports.csv"
 MONTHS = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"]   # crop month 1-12
+CAL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+START = 7                    # calendar month the crop year starts in; the Charts & Table view can change it per run
+CY_PRESETS = {"Jul–Jun": 7, "Oct–Sep": 10, "Apr–Mar": 4}           # Cecafe / ICO / Conab
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS = ROOT / "Database" / "cecafe_settings.json"
 EXPORTS_PATH, SETTINGS_PATH = "Database/cecafe_exports.csv", "Database/cecafe_settings.json"      # paths in the repo
@@ -33,7 +36,7 @@ PROJ_METHODS = ["Off", "YoY %", "Seasonal share", "Monthly value", "Full-year ta
 NAVY, TEAL, GREEN, RED, AMBER, GREY = "#0a2463", "#1f8a9c", "#1f9d6f", "#c94a4a", "#c98a1f", "#8a94a8"
 INK, AXIS, GRID = "#1a1a2e", "#4a5578", "rgba(10,36,99,0.08)"
 OLDER = [TEAL, AMBER, GREEN, "#6b7fb8", GREY, "#8fc7d0", "#e2c38a", "#9fd1bb", "#b9c3de"]
-SEQ = ["#ffffff", "#edf8f2", "#d2eee1", "#aee0c9", "#80cbab", "#52b28a", "#2f9870", "#1f7d5b", "#135f45"]
+SEQ = ["#ffffff", "#f2f9f5", "#e3f3ea", "#cfeadc", "#b6dec9", "#99cfb3", "#7bbf9c"]   # soft greens
 DIV = ["#c94a4a", "#dc8585", "#edbcbc", "#f7e2e2", "#ffffff", "#e2f3eb", "#aee0c9", "#52b28a", "#1f7d5b"]
 
 CSS = """
@@ -78,6 +81,21 @@ CSS = """
 .tbl.fixed { table-layout: auto; width: auto; }
 .tbl td, .tbl th { padding-left: 9px; padding-right: 9px; }
 .tbl-head { text-align: center; margin-top: 4px; }
+.tbl td.x { font-weight: 700; }
+/* 1 + 7. Navy header bar: title left, Entry / Charts & Table on the right */
+.st-key-mc_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
+    padding: 12px 22px !important; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+.mc-hero-t { color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
+.st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
+.st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
+.st-key-mc_hero div[role="radiogroup"] label { padding: 6px 16px !important; }
+.st-key-mc_hero div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { color: #c9d3ea !important; font-size: 13px !important; }
+.st-key-mc_hero div[role="radiogroup"] label:has(input:checked) { background: #ffffff !important; }
+.st-key-mc_hero div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
+/* 2. Every chart / the table in a white card */
+[class*="st-key-mc_card_"] { background: #ffffff; border: 1px solid #e6eaf2 !important; border-radius: 12px !important;
+    padding: 12px 16px 6px !important; box-shadow: 0 1px 3px rgba(10,36,99,.05); }
+[class*="st-key-mc_card_"] .card-desc { margin-bottom: 0; }
 </style>
 """
 
@@ -163,18 +181,22 @@ def section(label=""):
     st.markdown(f"<div class='mc-rule'></div>{lab}", unsafe_allow_html=True)
 
 
-def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0f", **extra):
+def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0f", short=False, **extra):
     xaxis = dict(gridcolor=GRID, color=AXIS, showgrid=False)
     if months:
         xaxis.update(categoryorder="array", categoryarray=months)
     xaxis.update(extra.pop("xaxis", {}))
-    yaxis = dict(gridcolor=GRID, color=AXIS, hoverformat=fmt, tickformat=fmt, separatethousands=True)
+    yaxis = dict(gridcolor=GRID, color=AXIS, hoverformat=fmt, tickformat="~s" if short else fmt,
+                 separatethousands=True)                           # short: 38M on the axis, full value on hover
     yaxis.update(extra.pop("yaxis", {}))
-    margin = dict(t=30, b=30, l=10, r=10)
+    margin = dict(t=14, b=30, l=10, r=10)
     leg = dict(bgcolor="rgba(0,0,0,0)", orientation="h", x=0, font=dict(size=10), itemwidth=30)
     if legend == "bottom":
         leg.update(y=-0.15, yanchor="top")
         margin["b"] = 60
+    elif legend == "top":                                          # one tight line just under the title
+        leg.update(y=1.0, yanchor="bottom")
+        margin["t"] = 30
     fig.update_layout(template="plotly_white", height=height, paper_bgcolor="rgba(0,0,0,0)",
                       plot_bgcolor="rgba(0,0,0,0)", font=dict(color=INK), legend=leg, showlegend=legend is not None,
                       xaxis=xaxis, yaxis=yaxis, margin=margin, hovermode="x unified" if unified else "closest", **extra)
@@ -228,9 +250,33 @@ def pivot(raw: pd.DataFrame, comm: str, factor: float, gbe: float) -> pd.DataFra
     return (piv.dropna(how="all") * factor).sort_index()
 
 
+def _cy_y0(cy: str) -> int:
+    """First calendar year of a crop-year label: '26/27' -> 2026, '2026' (Jan-Dec basis) -> 2026."""
+    return int(cy) if len(cy) == 4 else 2000 + int(cy[:2])
+
+
 def month_dates(cy: str, cm: int) -> pd.Timestamp:
-    y0 = 2000 + int(cy[:2])
-    return pd.Timestamp(y0, 6 + cm, 1) if cm <= 6 else pd.Timestamp(y0 + 1, cm - 6, 1)
+    k = START - 1 + cm - 1                                         # months after January of the crop year's first year
+    return pd.Timestamp(_cy_y0(cy) + k // 12, k % 12 + 1, 1)
+
+
+@st.cache_data(ttl=600)
+def recrop(raw: pd.DataFrame, start: int) -> pd.DataFrame:
+    """Re-label the stored Jul-Jun rows onto a crop year starting in calendar month `start` (same code idea as
+    TDM's crop-year basis). A leading crop year the data only partly covers is dropped."""
+    if start == 7:
+        return raw
+    d = raw.copy()
+    y0 = d["crop_year"].map(_cy_y0)
+    cal = (d["cm"] + 5) % 12 + 1                                   # stored cm 1 = Jul
+    year = y0 + (d["cm"] > 6).astype(int)
+    ny0 = year - (cal < start).astype(int)
+    d["cm"] = (cal - start) % 12 + 1
+    d["crop_year"] = ny0.map(lambda y: str(y) if start == 1 else f"{y % 100:02d}/{(y + 1) % 100:02d}")
+    first = d["crop_year"].min() if start == 1 else min(d["crop_year"], key=_cy_y0)
+    if d.loc[d["crop_year"] == first, "cm"].min() > 1:              # data starts mid crop year -> drop it
+        d = d[d["crop_year"] != first]
+    return d
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -240,13 +286,16 @@ def render():
     gbe = float(load_settings()["soluble_gbe"])
     if st.session_state.get("mc_page") in ("Charts", "Table", "Advanced Study"):   # sections that no longer exist
         st.session_state["mc_page"] = "Charts & Table"
-    with st.container(key="nav"):                                    # same pill row as Daily; Entry first
-        page = st.radio("Section", ["Entry", "Charts & Table"], horizontal=True,
-                        label_visibility="collapsed", key="mc_page")
+    with st.container(key="mc_hero"):                              # navy header: title left, tabs right
+        t_col, n_col = st.columns([3, 1.4], vertical_alignment="center")
+        title = t_col.empty()
+        page = n_col.radio("Section", ["Entry", "Charts & Table"], horizontal=True,
+                           label_visibility="collapsed", key="mc_page")
     if page == "Entry":
+        title.markdown("<div class='mc-hero-t'>Cecafe Monthly Exports</div>", unsafe_allow_html=True)
         render_input(raw, gbe)
     else:
-        _views(raw, gbe, page)
+        _views(raw, gbe, title)
 
 
 def _context(raw, gbe, comm, unit, span):
@@ -275,14 +324,32 @@ def _context(raw, gbe, comm, unit, span):
         sig=(comm, unit, latest_cy, common))
 
 
-def _views(raw, gbe, page):
-    """Charts & Table: one set of controls (Type, Unit, Years, Projection) drives the charts row and the table."""
+def _views(raw, gbe, title):
+    """Charts & Table: one set of controls (Type, Unit, Years, Crop year, Projection) drives the charts and the table.
+    The crop-year start re-labels the data and rotates MONTHS for this view only (restored for the Entry page)."""
+    global MONTHS, START
     pre = "ch"
     with st.container(border=True, key="mc_filters"):
-        b0, b1, b2, b3 = st.columns([4.6, 1.9, 1.5, 1.4], vertical_alignment="bottom")
+        b0, b1, b2, b4, b3, _ = st.columns([3.3, 1.35, 1.05, 1.75, 0.8, 0.75], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
         unit = b1.radio("Unit", list(UNITS), horizontal=True, key=f"mc_{pre}_unit")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
+        basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
+        if basis == "Custom":
+            seed("mc_cy_start", "Jul")
+            start = CAL.index(b4.selectbox("Start month", CAL, key="mc_cy_start")) + 1
+        else:
+            start = CY_PRESETS[basis]
+    saved = MONTHS, START
+    START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
+    try:
+        _views_body(recrop(raw, start), gbe, title, comm, unit, span, b3)
+    finally:
+        MONTHS, START = saved
+
+
+def _views_body(raw, gbe, title, comm, unit, span, b3):
+    with st.container(key="mc_filters_tail"):
         ctx = _context(raw, gbe, comm, unit, span)
         proj = {}
         if ctx is not None:
@@ -291,17 +358,29 @@ def _views(raw, gbe, page):
                 with st.container(key=f"mcproj_{'off' if st.session_state.get('mc_pj_method', 'Off') == 'Off' else 'on'}"):
                     proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"],
                                        unit, ctx["fmt"])
+    title.markdown(f"<div class='mc-hero-t'>{comm} Exports</div>", unsafe_allow_html=True)
     if ctx is None:
         st.info("No data for this selection.")
         return
-    section()
     _charts(ctx, proj)
-    section()
-    t_col, y_col = st.columns([2.4, 1], gap="large")              # table | YTD bars side by side
-    with t_col:
+    t_col, y_col = st.columns([2.4, 1], gap="medium")              # table | YTD bars side by side
+    with t_col, st.container(border=True, key="mc_card_table"):
         _table(ctx)
-    with y_col:
+    with y_col, st.container(border=True, key="mc_card_ytd"):
         _ytd(ctx)
+
+
+def _cv(v, unit, fmt):
+    """Compact value for on-chart labels: 10.68M in Bags, else the unit's own format."""
+    return f"{v / 1e6:.2f}M" if unit == "Bags" else format(v, fmt)
+
+
+def _last_dot(fig, x, y, text, pos):
+    """5. Latest point: navy dot + value + month, readable without hovering."""
+    fig.add_trace(go.Scatter(x=[x], y=[y], mode="markers+text", text=[text], textposition=pos,
+                             marker=dict(color=NAVY, size=8, line=dict(color="#ffffff", width=1.5)),
+                             textfont=dict(size=10.5, color=NAVY), showlegend=False, hoverinfo="skip",
+                             cliponaxis=False))
 
 
 def _charts(ctx, proj):
@@ -312,12 +391,14 @@ def _charts(ctx, proj):
     ht = f"%{{y:{fmt}}} {unit}"
     k = "mc"
     gbe_txt = f"{ctx['gbe']:g}"
+    short = unit == "Bags"
+    grey = "<span style='color:#7a86a8'>{}</span>"
 
     comm = ctx["comm"]
     u_desc = sc.split(" · ", 1)[1]                                  # unit (+ GBE note); the type is in the title
-    H = 520                                                        # one height for the three charts in the row
+    H = 500                                                        # one height for the three charts in the row
     l, mid, r = st.columns(3, gap="medium")
-    with l:
+    with l, st.container(border=True, key="mc_card_monthly"):
         view = chart_head(f"{comm} Monthly Exports", f"{u_desc} · bands = L{len(ref)}Y min-max and percentiles",
                           lambda w: w.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True,
                                             key=f"{k}_view", label_visibility="collapsed"))
@@ -326,15 +407,21 @@ def _charts(ctx, proj):
         _band(fig, piv.loc[ref], len(ref), fmt) if len(ref) >= 2 else None
         for y in plot_years:
             c, wd = styles[y]
-            s = piv.loc[y].dropna()
-            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
+            s_ = piv.loc[y].dropna()
+            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s_.index], y=s_.values, name=y, mode="lines",
                                      line=dict(color=c, width=wd), hovertemplate=ht))
         if proj and latest_cy in shown:
             xs = [MONTHS[common - 1]] + [MONTHS[m - 1] for m in proj]
             fig.add_trace(_proj_trace(xs, [piv.loc[latest_cy, common]] + list(proj.values()), latest_cy, ht))
-        show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
+        if latest_cy in plot_years:
+            s_ = piv.loc[latest_cy].dropna()
+            m = int(s_.index.max())
+            _last_dot(fig, MONTHS[m - 1], s_[m], f"<b>{_cv(s_[m], unit, fmt)}</b> {grey.format(MONTHS[m - 1])}",
+                      "top right")
+        show(style(fig, height=H, legend="top", months=MONTHS, unified=True, fmt=fmt, short=short),
+             key=f"{k}_seasonal")
 
-    with mid:
+    with mid, st.container(border=True, key="mc_card_cum"):
         cview = chart_head(f"{comm} Cumulative Exports", f"{u_desc} · bands = L{len(ref)}Y cumulative",
                            lambda w: w.radio("Cumulative view", ["Last 4", "All"], horizontal=True,
                                              key=f"{k}_cumview", label_visibility="collapsed"))
@@ -348,8 +435,8 @@ def _charts(ctx, proj):
                 c, wd = styles[y]
             else:
                 c, wd = OLDER[older.index(y) % len(OLDER)], 1.3
-            s = piv.loc[y].dropna().cumsum()
-            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s.index], y=s.values, name=y, mode="lines",
+            s_ = piv.loc[y].dropna().cumsum()
+            fig.add_trace(go.Scatter(x=[MONTHS[m - 1] for m in s_.index], y=s_.values, name=y, mode="lines",
                                      line=dict(color=c, width=wd), hovertemplate=ht))
         if proj:
             run = float(ytd[latest_cy])
@@ -359,9 +446,14 @@ def _charts(ctx, proj):
                 xs.append(MONTHS[m - 1])
                 ys.append(run)
             fig.add_trace(_proj_trace(xs, ys, latest_cy, ht))
-        show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
+        s_ = piv.loc[latest_cy].dropna().cumsum()
+        if len(s_):
+            m = int(s_.index.max())
+            _last_dot(fig, MONTHS[m - 1], s_[m], f"<b>{_cv(s_[m], unit, fmt)}</b> {grey.format(MONTHS[m - 1])}",
+                      "top left")
+        show(style(fig, height=H, legend="top", months=MONTHS, unified=True, fmt=fmt, short=short), key=f"{k}_cum")
 
-    with r:
+    with r, st.container(border=True, key="mc_card_rolling"):
         seed(f"{k}_roll", "12m")
         win = chart_head(f"{comm} Rolling Exports", f"{u_desc} · trailing sum",
                          lambda w: w.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
@@ -384,12 +476,15 @@ def _charts(ctx, proj):
             nm = f"{c} (x{gbe_txt})" if c == "Soluble" else c
             fig.add_trace(go.Scatter(x=rc.index, y=rc.values, mode="lines", name=nm, line=dict(color=pal[c], width=1.8),
                                      hovertemplate=f"{nm} %{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=H, legend="bottom" if parts else None, fmt=fmt,
+        if len(roll):
+            _last_dot(fig, roll.index[-1], roll.iloc[-1],
+                      f"<b>{_cv(roll.iloc[-1], unit, fmt)}</b> {grey.format(f'{roll.index[-1]:%b-%y}')}", "top left")
+        show(style(fig, height=H, legend="top" if parts else None, fmt=fmt, short=short,
                    yaxis=dict(autorange=True, rangemode="normal")), key=f"{k}_rolling")
 
 
 def _ytd(ctx):
-    """YTD bars (current crop year navy, YoY % on each bar); sits beside the table."""
+    """9. YTD bars: thinner, YoY inside the top of each bar, the current year's value above its bar."""
     years, latest_cy, ytd, yoy, cut, shown, sc, unit, fmt = (
         ctx[k_] for k_ in ("years", "latest_cy", "ytd", "yoy", "cut", "shown", "sc", "unit", "fmt"))
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} YTD {cut}</div>"
@@ -397,12 +492,15 @@ def _ytd(ctx):
     yy = [y for y in years if y in shown or y == latest_cy]
     colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
     labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
-    fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
-                           textfont=dict(size=10, color=AXIS), cliponaxis=False,
+    fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="inside",
+                           insidetextanchor="end", textangle=0,
+                           textfont=dict(size=10, color=["#ffffff" if y == latest_cy else NAVY for y in yy]),
                            hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+    fig.add_annotation(x=latest_cy, y=float(ytd[latest_cy]), text=f"<b>{_cv(float(ytd[latest_cy]), unit, fmt)}</b>",
+                       showarrow=False, yanchor="bottom", yshift=3, font=dict(size=11, color=NAVY))
     rows = len(yy) + 5                                             # roughly the table's height, so the two end level
-    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")),
-         key="mc_ytd")
+    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", bargap=0.45,
+               yaxis=dict(rangemode="tozero")), key="mc_ytd")
 
 
 def _table(ctx):
@@ -412,8 +510,6 @@ def _table(ctx):
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} Monthly Exports</div></div>",
                 unsafe_allow_html=True)
     _heatmap(piv, ctx["shown"], latest_cy, common, ytd, yoy, ref, fmt, cut)
-
-
 
 
 # ── Pieces ────────────────────────────────────────────────────────────────────
@@ -524,7 +620,7 @@ def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt, cut):
             dev = [(s[m] / avg[m] - 1) * 100 if pd.notna(s[m]) and s[m] > 0 and avg[m] > 0 else np.nan
                    for m in range(1, 13)]
             lim = max([abs(v) for v in dev if pd.notna(v)] or [20])
-            dc = [t_cell("") if pd.isna(v) else t_cell(f"{v:+.0f}%", bg=div_color(v, lim)) for v in dev]
+            dc = [t_cell("") if pd.isna(v) else t_cell(f"{v:+.0f}%", "up" if v > 0 else "down") for v in dev]
             rows.append(t_row(f"vs Avg L{len(ref)}Y", dc + [t_cell("", "x")] * 3 + [t_cell("")], "ref"))
 
     if len(ref) >= 2:

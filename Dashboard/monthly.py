@@ -67,6 +67,12 @@ CSS = """
 /* Section dividers: rule + centred label */
 .mc-rule { border-top: 1px solid #dfe3ee; margin: 22px 0 0; }
 .mc-sec { font-size: 18px; font-weight: 700; color: #8b1a1a; text-align: center; letter-spacing: .01em; margin: 6px 0 8px; }
+/* Compact table: smaller type, tight cells, values centred */
+.tbl { font-size: 11.5px; line-height: 1.25; }
+.tbl th { padding: 3px 5px; font-size: 11px; }
+.tbl td { padding: 2px 5px; text-align: center; }
+.tbl td.lbl { text-align: left; }
+.tbl.fixed th:first-child { width: 84px; }
 </style>
 """
 
@@ -387,9 +393,10 @@ def _charts(ctx, proj):
 def _table(ctx):
     piv, years, latest_cy, common, ref, ytd, yoy, cut, sc, fmt = (
         ctx[k_] for k_ in ("piv", "years", "latest_cy", "common", "ref", "ytd", "yoy", "cut", "sc", "fmt"))
+    # rows follow the Years filter (Last 5 / Last 10 / All) so the whole page fits one screen
     heading(f"{ctx['comm']} Monthly Exports",
-            f"{sc} · all crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
-    _heatmap(piv, years, latest_cy, common, ytd, yoy, ref, fmt, cut)
+            f"{sc} · {ctx['span'].lower()} crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
+    _heatmap(piv, ctx["shown"], latest_cy, common, ytd, yoy, ref, fmt, cut)
 
 
 

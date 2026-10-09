@@ -197,8 +197,10 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
+    if st.session_state.get("mc_page") in ("Charts", "Table"):        # the two used to be separate sections
+        st.session_state["mc_page"] = "Charts & Table"
     with st.container(key="nav"):                                    # same pill row as Daily; Entry first
-        page = st.radio("Section", ["Entry", "Charts", "Table", "Advanced Study"], horizontal=True,
+        page = st.radio("Section", ["Entry", "Charts & Table", "Advanced Study"], horizontal=True,
                         label_visibility="collapsed", key="mc_page")
     if page == "Entry":
         render_input(raw, gbe)
@@ -235,19 +237,18 @@ def _context(raw, gbe, comm, unit, span):
 
 
 def _views(raw, gbe, page):
-    """Charts and Table each have their own controls (separate state): Type + Unit on both, Years + Projection on Charts."""
-    pre = "ch" if page == "Charts" else "tb"
+    """Charts & Table: one set of controls (Type, Unit, Years, Projection) drives the charts row and the table."""
+    pre = "ch"
     with st.container(border=True):
         comm = st.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_comm")
         b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
         unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_unit")
         span = "All"
-        if page == "Charts":
-            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
-                            key="mc_ch_span")
+        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
+                        key="mc_ch_span")
         ctx = _context(raw, gbe, comm, unit, span)
         proj = {}
-        if ctx is not None and page == "Charts":
+        if ctx is not None:
             with b3:
                 proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"], unit,
                                    ctx["fmt"])
@@ -261,10 +262,8 @@ def _views(raw, gbe, page):
     if proj:
         line.append(f"Projected full year <b>{format(ytd_now + sum(proj.values()), fmt)}</b>")
     st.markdown(f"<div class='card-desc' style='margin:8px 0 2px'>{' · '.join(line)}</div>", unsafe_allow_html=True)
-    if page == "Charts":
-        _charts(ctx, proj)
-    else:
-        _table(ctx)
+    _charts(ctx, proj)
+    _table(ctx)
 
 
 def _charts(ctx, proj):
@@ -276,13 +275,14 @@ def _charts(ctx, proj):
     k = "mc"
     gbe_txt = f"{ctx['gbe']:g}"
 
-    l, r = st.columns(2, gap="medium")
+    comm = ctx["comm"]
+    u_desc = sc.split(" · ", 1)[1]                                  # unit (+ GBE note); the type is in the title
+    H = 420                                                        # one height for the three charts in the row
+    l, mid, r = st.columns(3, gap="medium")
     with l:
-        h, w = st.columns([1.4, 1], vertical_alignment="bottom")
-        with h:
-            heading("Monthly exports", f"{sc} · bands = L{len(ref)}Y min-max and percentiles")
-        view = w.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True, key=f"{k}_view",
-                       label_visibility="collapsed")
+        heading(f"{comm} Monthly Exports", f"{u_desc} · bands = L{len(ref)}Y min-max and percentiles")
+        view = st.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True, key=f"{k}_view",
+                        label_visibility="collapsed")
         plot_years = shown if view == "All years" else [y for y in shown if y in (latest_cy, prev_cy)]
         fig = go.Figure()
         _band(fig, piv.loc[ref], len(ref), fmt) if len(ref) >= 2 else None
@@ -294,13 +294,11 @@ def _charts(ctx, proj):
         if proj and latest_cy in shown:
             xs = [MONTHS[common - 1]] + [MONTHS[m - 1] for m in proj]
             fig.add_trace(_proj_trace(xs, [piv.loc[latest_cy, common]] + list(proj.values()), latest_cy, ht))
-        show(style(fig, height=500, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
+        show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
 
-    with r:
-        h2, w2 = st.columns([1.4, 1], vertical_alignment="bottom")
-        with h2:
-            heading("Cumulative exports", f"{sc} · bands = L{len(ref)}Y cumulative")
-        cview = w2.radio("Cumulative view", ["Last 4", "All"], horizontal=True, key=f"{k}_cumview",
+    with mid:
+        heading(f"{comm} Cumulative Exports", f"{u_desc} · bands = L{len(ref)}Y cumulative")
+        cview = st.radio("Cumulative view", ["Last 4", "All"], horizontal=True, key=f"{k}_cumview",
                          label_visibility="collapsed")
         fig = go.Figure()
         if len(ref) >= 2:
@@ -323,25 +321,13 @@ def _charts(ctx, proj):
                 xs.append(MONTHS[m - 1])
                 ys.append(run)
             fig.add_trace(_proj_trace(xs, ys, latest_cy, ht))
-        show(style(fig, height=500, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
+        show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
 
-    l, r = st.columns(2, gap="medium")
-    with l:
-        heading(f"YTD {cut}", f"{sc} · label = YoY")
-        yy = [y for y in years if y in shown or y == latest_cy]
-        colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
-        labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
-        fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
-                               textfont=dict(size=11, color=AXIS), cliponaxis=False,
-                               hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=300, legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")), key=f"{k}_ytd")
     with r:
-        h, w = st.columns([1.6, 1], vertical_alignment="bottom")
-        with h:
-            heading("Rolling exports", f"{sc} · trailing sum")
+        heading(f"{comm} Rolling Exports", f"{u_desc} · trailing sum")
         seed(f"{k}_roll", "12m")
-        win = w.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
-                      label_visibility="collapsed")
+        win = st.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
+                       label_visibility="collapsed")
         def rolling(pv):
             stack = pv.stack().dropna()
             mon = pd.Series(stack.values, index=[month_dates(cy, int(cm)) for cy, cm in stack.index]).sort_index()
@@ -357,14 +343,14 @@ def _charts(ctx, proj):
             nm = f"{c} (x{gbe_txt})" if c == "Soluble" else c
             fig.add_trace(go.Scatter(x=rc.index, y=rc.values, mode="lines", name=nm, line=dict(color=pal[c], width=1.8),
                                      hovertemplate=f"{nm} %{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=300 if not parts else 340, legend="bottom" if parts else None, fmt=fmt),
-             key=f"{k}_rolling")
+        show(style(fig, height=H, legend="bottom" if parts else None, fmt=fmt), key=f"{k}_rolling")
 
 
 def _table(ctx):
     piv, years, latest_cy, common, ref, ytd, yoy, cut, sc, fmt = (
         ctx[k_] for k_ in ("piv", "years", "latest_cy", "common", "ref", "ytd", "yoy", "cut", "sc", "fmt"))
-    heading("Monthly exports", f"{sc} · all crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
+    heading(f"{ctx['comm']} Monthly Exports · Table",
+            f"{sc} · all crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
     _heatmap(piv, years, latest_cy, common, ytd, yoy, ref, fmt, cut)
 
 

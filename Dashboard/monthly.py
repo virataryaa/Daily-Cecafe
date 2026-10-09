@@ -486,7 +486,7 @@ def _charts(ctx, proj):
 
 
 def _ytd(ctx):
-    """9. YTD bars: thinner, YoY inside the top of each bar, the current year's value above its bar."""
+    """YTD bars: total above every bar (current year bold navy), YoY % inside the top of each bar."""
     years, latest_cy, ytd, yoy, cut, shown, sc, unit, fmt = (
         ctx[k_] for k_ in ("years", "latest_cy", "ytd", "yoy", "cut", "shown", "sc", "unit", "fmt"))
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} YTD {cut}</div>"
@@ -498,8 +498,12 @@ def _ytd(ctx):
                            insidetextanchor="end", textangle=0,
                            textfont=dict(size=10, color=["#ffffff" if y == latest_cy else NAVY for y in yy]),
                            hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-    fig.add_annotation(x=latest_cy, y=float(ytd[latest_cy]), text=f"<b>{_cv(float(ytd[latest_cy]), unit, fmt)}</b>",
-                       showarrow=False, yanchor="bottom", yshift=3, font=dict(size=11, color=NAVY))
+    for y in yy:                                                   # total above every bar, YoY % inside it
+        v = float(ytd[y])
+        latest = y == latest_cy
+        fig.add_annotation(x=y, y=v, text=f"<b>{_cv(v, unit, fmt)}</b>" if latest else _cv(v, unit, fmt),
+                           showarrow=False, yanchor="bottom", yshift=3,
+                           font=dict(size=11 if latest else 9, color=NAVY if latest else AXIS))
     rows = len(yy) + 5                                             # roughly the table's height, so the two end level
     show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", bargap=0.45,
                yaxis=dict(rangemode="tozero")), key="mc_ytd")

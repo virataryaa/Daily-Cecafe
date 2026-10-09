@@ -51,6 +51,22 @@ CSS = """
 .tbl tr.sep td { height: 3px; padding: 0; background: #eef0f6; border: none; }
 .tbl td.up { color: #1f9d6f; font-weight: 700; }
 .tbl td.down { color: #c94a4a; font-weight: 700; }
+/* Filter card: one row, small navy caps labels over each group */
+.st-key-mc_filters [data-testid="stWidgetLabel"] { min-height: 0; margin-bottom: 4px; }
+.st-key-mc_filters [data-testid="stWidgetLabel"] p, .mc-lbl { font-size: 10.5px !important; font-weight: 700;
+    letter-spacing: .08em; text-transform: uppercase; color: #0a2463 !important; margin: 0 0 4px; }
+/* Projection: a small chip, grey when off, navy-tinted when a method is on */
+.st-key-mc_proj button { min-height: 34px !important; border-radius: 999px !important; padding: 4px 16px !important;
+    background: #f8f9fc !important; border: 1px solid #e3e7ef !important; box-shadow: none !important; }
+.st-key-mc_proj button p { font-size: 12.5px !important; font-weight: 600; color: #3d4a6b !important; }
+.st-key-mcproj_on .st-key-mc_proj button { background: #eef2fb !important; border-color: #b9c6e6 !important; }
+.st-key-mcproj_on .st-key-mc_proj button p { color: #0a2463 !important; }
+/* Chart title line: toggle flush right */
+[data-testid="stVerticalBlock"]:has(> .st-key-mc_view), [data-testid="stVerticalBlock"]:has(> .st-key-mc_cumview),
+[data-testid="stVerticalBlock"]:has(> .st-key-mc_roll) { align-items: flex-end; }
+/* Section dividers: rule + centred label */
+.mc-rule { border-top: 1px solid #dfe3ee; margin: 22px 0 0; }
+.mc-sec { font-size: 18px; font-weight: 700; color: #8b1a1a; text-align: center; letter-spacing: .01em; margin: 6px 0 8px; }
 </style>
 """
 
@@ -122,6 +138,19 @@ def heading(title, desc=""):
     st.markdown(f"<div class='chart-head'>{title}</div>{d}", unsafe_allow_html=True)
 
 
+def chart_head(title, desc, control):
+    """Title with its toggle on the same line (right), description underneath at full width."""
+    h, w = st.columns([1, 1], vertical_alignment="center")
+    h.markdown(f"<div class='chart-head'>{title}</div>", unsafe_allow_html=True)
+    out = control(w)
+    st.markdown(f"<div class='card-desc'>{desc}</div>", unsafe_allow_html=True)
+    return out
+
+
+def section(label):
+    st.markdown(f"<div class='mc-rule'></div><div class='mc-sec'>{label}</div>", unsafe_allow_html=True)
+
+
 def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0f", **extra):
     xaxis = dict(gridcolor=GRID, color=AXIS, showgrid=False)
     if months:
@@ -130,7 +159,7 @@ def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0
     yaxis = dict(gridcolor=GRID, color=AXIS, hoverformat=fmt, tickformat=fmt, separatethousands=True)
     yaxis.update(extra.pop("yaxis", {}))
     margin = dict(t=30, b=30, l=10, r=10)
-    leg = dict(bgcolor="rgba(0,0,0,0)", orientation="h", x=0, font=dict(size=11))
+    leg = dict(bgcolor="rgba(0,0,0,0)", orientation="h", x=0, font=dict(size=10), itemwidth=30)
     if legend == "bottom":
         leg.update(y=-0.15, yanchor="top")
         margin["b"] = 60
@@ -239,19 +268,19 @@ def _context(raw, gbe, comm, unit, span):
 def _views(raw, gbe, page):
     """Charts & Table: one set of controls (Type, Unit, Years, Projection) drives the charts row and the table."""
     pre = "ch"
-    with st.container(border=True):
-        comm = st.radio("Type", COMMS, horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_comm")
-        b1, b2, b3, _ = st.columns([2.8, 2.2, 1.8, 6], vertical_alignment="center")
-        unit = b1.radio("Unit", list(UNITS), horizontal=True, label_visibility="collapsed", key=f"mc_{pre}_unit")
-        span = "All"
-        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, label_visibility="collapsed",
-                        key="mc_ch_span")
+    with st.container(border=True, key="mc_filters"):
+        b0, b1, b2, b3 = st.columns([4.6, 1.9, 1.5, 1.4], vertical_alignment="bottom")
+        comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
+        unit = b1.radio("Unit", list(UNITS), horizontal=True, key=f"mc_{pre}_unit")
+        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
         ctx = _context(raw, gbe, comm, unit, span)
         proj = {}
         if ctx is not None:
             with b3:
-                proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"], unit,
-                                   ctx["fmt"])
+                st.markdown("<div class='mc-lbl'>Projection</div>", unsafe_allow_html=True)
+                with st.container(key=f"mcproj_{'off' if st.session_state.get('mc_pj_method', 'Off') == 'Off' else 'on'}"):
+                    proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"],
+                                       unit, ctx["fmt"])
     if ctx is None:
         st.info("No data for this selection.")
         return
@@ -262,7 +291,9 @@ def _views(raw, gbe, page):
     if proj:
         line.append(f"Projected full year <b>{format(ytd_now + sum(proj.values()), fmt)}</b>")
     st.markdown(f"<div class='card-desc' style='margin:8px 0 2px'>{' · '.join(line)}</div>", unsafe_allow_html=True)
+    section("Charts")
     _charts(ctx, proj)
+    section("Table")
     _table(ctx)
 
 
@@ -277,12 +308,12 @@ def _charts(ctx, proj):
 
     comm = ctx["comm"]
     u_desc = sc.split(" · ", 1)[1]                                  # unit (+ GBE note); the type is in the title
-    H = 420                                                        # one height for the three charts in the row
+    H = 520                                                        # one height for the three charts in the row
     l, mid, r = st.columns(3, gap="medium")
     with l:
-        heading(f"{comm} Monthly Exports", f"{u_desc} · bands = L{len(ref)}Y min-max and percentiles")
-        view = st.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True, key=f"{k}_view",
-                        label_visibility="collapsed")
+        view = chart_head(f"{comm} Monthly Exports", f"{u_desc} · bands = L{len(ref)}Y min-max and percentiles",
+                          lambda w: w.radio("Seasonal view", ["Latest vs range", "All years"], horizontal=True,
+                                            key=f"{k}_view", label_visibility="collapsed"))
         plot_years = shown if view == "All years" else [y for y in shown if y in (latest_cy, prev_cy)]
         fig = go.Figure()
         _band(fig, piv.loc[ref], len(ref), fmt) if len(ref) >= 2 else None
@@ -297,9 +328,9 @@ def _charts(ctx, proj):
         show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_seasonal")
 
     with mid:
-        heading(f"{comm} Cumulative Exports", f"{u_desc} · bands = L{len(ref)}Y cumulative")
-        cview = st.radio("Cumulative view", ["Last 4", "All"], horizontal=True, key=f"{k}_cumview",
-                         label_visibility="collapsed")
+        cview = chart_head(f"{comm} Cumulative Exports", f"{u_desc} · bands = L{len(ref)}Y cumulative",
+                           lambda w: w.radio("Cumulative view", ["Last 4", "All"], horizontal=True,
+                                             key=f"{k}_cumview", label_visibility="collapsed"))
         fig = go.Figure()
         if len(ref) >= 2:
             _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt)
@@ -324,32 +355,36 @@ def _charts(ctx, proj):
         show(style(fig, height=H, months=MONTHS, unified=True, fmt=fmt), key=f"{k}_cum")
 
     with r:
-        heading(f"{comm} Rolling Exports", f"{u_desc} · trailing sum")
         seed(f"{k}_roll", "12m")
-        win = st.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
-                       label_visibility="collapsed")
+        win = chart_head(f"{comm} Rolling Exports", f"{u_desc} · trailing sum",
+                         lambda w: w.radio("Window", ["1m", "3m", "6m", "12m"], horizontal=True, key=f"{k}_roll",
+                                           label_visibility="collapsed"))
         def rolling(pv):
             stack = pv.stack().dropna()
             mon = pd.Series(stack.values, index=[month_dates(cy, int(cm)) for cy, cm in stack.index]).sort_index()
             return mon.rolling(int(win[:-1])).sum().dropna()
         parts = ctx["parts"]
         roll = rolling(piv)
-        fig = go.Figure(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
-                                   fill="tozeroy", fillcolor=rgba(TEAL, 0.08), name="Combined" if parts else "Rolling",
-                                   hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+        floor = float(roll.min()) - 0.05 * float(roll.max() - roll.min())     # shade to just under the low, not to 0
+        fig = go.Figure(go.Scatter(x=roll.index, y=[floor] * len(roll), mode="lines", line=dict(width=0),
+                                   showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
+                                 fill="tonexty", fillcolor=rgba(TEAL, 0.08), name="Combined" if parts else "Rolling",
+                                 hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
         pal = {"Arabica": NAVY, "Robusta": AMBER, "Soluble": GREEN}
         for c, pv in parts.items():                                # breakup: one line per type in the combination
             rc = rolling(pv)
             nm = f"{c} (x{gbe_txt})" if c == "Soluble" else c
             fig.add_trace(go.Scatter(x=rc.index, y=rc.values, mode="lines", name=nm, line=dict(color=pal[c], width=1.8),
                                      hovertemplate=f"{nm} %{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=H, legend="bottom" if parts else None, fmt=fmt), key=f"{k}_rolling")
+        show(style(fig, height=H, legend="bottom" if parts else None, fmt=fmt,
+                   yaxis=dict(autorange=True, rangemode="normal")), key=f"{k}_rolling")
 
 
 def _table(ctx):
     piv, years, latest_cy, common, ref, ytd, yoy, cut, sc, fmt = (
         ctx[k_] for k_ in ("piv", "years", "latest_cy", "common", "ref", "ytd", "yoy", "cut", "sc", "fmt"))
-    heading(f"{ctx['comm']} Monthly Exports · Table",
+    heading(f"{ctx['comm']} Monthly Exports",
             f"{sc} · all crop years · {latest_cy} to {MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y")
     _heatmap(piv, years, latest_cy, common, ytd, yoy, ref, fmt, cut)
 
@@ -366,10 +401,11 @@ def _band(fig, b, n, fmt):
                             (b.quantile(0.10), b.quantile(0.90), 0.16, "10th–90th pct"),
                             (b.quantile(0.25), b.quantile(0.75), 0.30, "25th–75th pct")]:
         fig.add_trace(go.Scatter(x=x, y=hi.values, mode="lines", showlegend=False, line=dict(width=0),
-                                 hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=x, y=lo.values, name=name, mode="lines", line=dict(width=0), fill="tonexty",
-                                 fillcolor=rgba(TEAL, a), hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=x, y=b.mean().values, name=f"Avg L{n}Y", mode="lines",
+                                 hoverinfo="skip", legendgroup="band"))
+        fig.add_trace(go.Scatter(x=x, y=lo.values, name=f"L{n}Y range", mode="lines", line=dict(width=0),
+                                 fill="tonexty", fillcolor=rgba(TEAL, a), hoverinfo="skip", legendgroup="band",
+                                 showlegend=(a == 0.30)))          # one legend entry toggles all three bands
+    fig.add_trace(go.Scatter(x=x, y=b.mean().values, name="Avg", mode="lines",
                              line=dict(color=AXIS, width=1.5, dash="dot"), hovertemplate=f"%{{y:{fmt}}}"))
 
 
@@ -389,7 +425,7 @@ def _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt):
     method = st.session_state[k_method]
     out = {}
     ks = f"mc_{piv.shape[0]}_{abs(hash((latest_cy, common, unit)) ) % 10**8}"      # new selection -> fresh defaults
-    with st.popover(f"Projection: {method}", width="stretch"):
+    with st.popover(f"{method}" if method != "Off" else "Off", key="mc_proj"):
         method = st.radio("Method", PROJ_METHODS, key=k_method)
         done = list(range(1, common + 1))
         ytd_now = float(piv.loc[latest_cy, done].sum())

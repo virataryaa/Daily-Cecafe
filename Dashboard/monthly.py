@@ -511,7 +511,7 @@ def _charts(ctx, proj):
 
 
 def _ytd(ctx):
-    """YTD bars: total above every bar (current year bold navy), YoY % inside the top of each bar."""
+    """YTD bars: total and YoY % (green / red) stacked above every bar; current year bold navy."""
     years, latest_cy, ytd, yoy, cut, shown, sc, unit, fmt = (
         ctx[k_] for k_ in ("years", "latest_cy", "ytd", "yoy", "cut", "shown", "sc", "unit", "fmt"))
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} YTD {cut}</div>"
@@ -519,16 +519,16 @@ def _ytd(ctx):
     yy = [y for y in years if y in shown or y == latest_cy]
     colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
     labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
-    fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="inside",
-                           insidetextanchor="end", textangle=0,
-                           textfont=dict(size=10, color=["#ffffff" if y == latest_cy else NAVY for y in yy]),
+    fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors,
                            hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-    for y in yy:                                                   # total above every bar, YoY % inside it
+    for y, lab in zip(yy, labels):                                 # total + YoY % stacked above every bar
         v = float(ytd[y])
         latest = y == latest_cy
-        fig.add_annotation(x=y, y=v, text=f"<b>{_cv(v, unit, fmt)}</b>" if latest else _cv(v, unit, fmt),
-                           showarrow=False, yanchor="bottom", yshift=3,
-                           font=dict(size=11 if latest else 9, color=NAVY if latest else AXIS))
+        tot_txt = f"<b>{_cv(v, unit, fmt)}</b>" if latest else _cv(v, unit, fmt)
+        yo_txt = (f"<br><span style='color:{GREEN if lab.startswith('+') else RED};font-size:10px'><b>{lab}</b></span>"
+                  if lab else "")
+        fig.add_annotation(x=y, y=v, text=tot_txt + yo_txt, showarrow=False, yanchor="bottom", yshift=3,
+                           font=dict(size=11 if latest else 9.5, color=NAVY if latest else AXIS))
     rows = len(yy) + 5                                             # roughly the table's height, so the two end level
     show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", bargap=0.45,
                yaxis=dict(rangemode="tozero")), key="mc_ytd")
@@ -537,7 +537,8 @@ def _ytd(ctx):
 def _pace(ctx, proj):
     """Full-year totals by crop year. The running year = YTD (solid) + projected rest (light): the Projection set at
     the top when one is on, otherwise the seasonal-share method (YTD / usual share shipped by now, last 5 complete
-    years). The whisker = low / high forecast: YTD / each complete year's own share by now (L10Y)."""
+    years). The whisker = low / high forecast: 10th-90th percentile of YTD / each complete year's own share by now
+    (L10Y) -- percentiles, not min-max, because a tiny year (e.g. Robusta 17/18, 14% by Oct) explodes the estimate."""
     piv, years, latest_cy, prev_cy, common, ref, ytd, shown, unit, fmt = (
         ctx[k_] for k_ in ("piv", "years", "latest_cy", "prev_cy", "common", "ref", "ytd", "shown", "unit", "fmt"))
     c = lambda v: _cv(v, unit, fmt)
@@ -551,7 +552,7 @@ def _pace(ctx, proj):
         tf = piv.loc[full].sum(axis=1)
         shares = piv.loc[full, list(range(1, common + 1))].sum(axis=1) / tf
         est = now / shares[shares > 0]                             # what this YTD implies under each year's pattern
-        lo, hi = float(est.min()), float(est.max())
+        lo, hi = float(est.quantile(0.10)), float(est.quantile(0.90))   # p10-p90: one odd year can't set the band
         if proj:
             center = now + float(sum(proj.values()))
             method = f"projection: {st.session_state.get('mc_pj_method', '')}"
@@ -586,7 +587,8 @@ def _pace(ctx, proj):
                bargap=0.35, yaxis=dict(rangemode="tozero")), key="mc_pace")
     if pd.notna(center):
         st.markdown(f"<div class='card-desc' style='text-align:center'>Low–high {c(lo)} – {c(hi)} "
-                    f"(this YTD under each of the last {len(full)} years' seasonality)</div>", unsafe_allow_html=True)
+                    f"(10th–90th pct of this YTD under the last {len(full)} years' seasonality)</div>",
+                    unsafe_allow_html=True)
 
 
 def _table(ctx):

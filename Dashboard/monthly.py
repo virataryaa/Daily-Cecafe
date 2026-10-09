@@ -363,11 +363,11 @@ def _views_body(raw, gbe, title, comm, unit, span, b3):
         st.info("No data for this selection.")
         return
     _charts(ctx, proj)
-    t_col, p_col, y_col = st.columns([2.25, 0.8, 1], gap="medium")  # table | season pace | YTD bars
+    t_col, p_col, y_col = st.columns([2.2, 0.95, 1], gap="medium")  # table | full-year totals | YTD bars
     with t_col, st.container(border=True, key="mc_card_table"):
         _table(ctx)
     with p_col, st.container(border=True, key="mc_card_pace"):
-        _pace(ctx)
+        _pace(ctx, proj)
     with y_col, st.container(border=True, key="mc_card_ytd"):
         _ytd(ctx)
 
@@ -505,69 +505,59 @@ def _ytd(ctx):
                yaxis=dict(rangemode="tozero")), key="mc_ytd")
 
 
-def _pace(ctx):
-    """Season pace: the full year that YTD implies at the usual seasonal share (last 5 complete years), as a headline,
-    then one bar (YTD solid + implied rest light) beside a slim L10Y range rail with avg / last-year ticks."""
-    piv, years, latest_cy, prev_cy, common, ref, ytd, cut, shown, unit, fmt = (
-        ctx[k_] for k_ in ("piv", "years", "latest_cy", "prev_cy", "common", "ref", "ytd", "cut", "shown",
-                           "unit", "fmt"))
-    full = [y for y in ref if piv.loc[y].notna().all()]
-    if len(full) < 2 or common >= 12:
-        st.markdown("<div class='tbl-head'><div class='chart-head'>Season pace</div></div>"
-                    f"<div class='card-desc' style='text-align:center;margin-top:30px'>"
-                    f"{'Crop year complete' if common >= 12 else 'Not enough history'}</div>", unsafe_allow_html=True)
-        return
-    tot = piv.loc[full].sum(axis=1)
-    share = float((piv.loc[full[-5:], list(range(1, common + 1))].sum(axis=1) / tot[full[-5:]]).mean())
-    now = float(ytd[latest_cy])
-    implied = now / share if share > 0 else np.nan
-    last = float(piv.loc[prev_cy].sum()) if prev_cy in full else np.nan
-    lo, hi, avg = float(tot.min()), float(tot.max()), float(tot.mean())
+def _pace(ctx, proj):
+    """Full-year totals by crop year. The running year = YTD (solid) + projected rest (light): the Projection set at
+    the top when one is on, otherwise the seasonal-share method (YTD / usual share shipped by now, last 5 complete
+    years). The whisker = low / high forecast: YTD / each complete year's own share by now (L10Y)."""
+    piv, years, latest_cy, prev_cy, common, ref, ytd, shown, unit, fmt = (
+        ctx[k_] for k_ in ("piv", "years", "latest_cy", "prev_cy", "common", "ref", "ytd", "shown", "unit", "fmt"))
     c = lambda v: _cv(v, unit, fmt)
+    full = [y for y in ref if piv.loc[y].notna().all()]
+    yy = [y for y in years if y in shown or y == latest_cy]
+    tot = piv.sum(axis=1, min_count=1)
+    now = float(ytd[latest_cy])
 
-    # headline: implied full year, and how it compares with last year
-    vs = ""
-    if pd.notna(last) and last > 0:
-        d = (implied / last - 1) * 100
-        vs = (f"<span style='color:{GREEN if d >= 0 else RED};font-weight:700'>{d:+.1f}%</span> "
-              f"vs {prev_cy} ({c(last)})")
-    st.markdown(f"<div class='tbl-head'><div class='chart-head'>Season pace</div>"
-                f"<div class='card-desc'>{share * 100:.0f}% of a normal year ships by {MONTHS[common - 1]}</div>"
-                f"<div style='font-size:26px;font-weight:700;color:{NAVY};line-height:1.15;margin-top:8px'>{c(implied)}</div>"
-                f"<div style='font-size:11px;color:#7a86a8;letter-spacing:.06em;text-transform:uppercase'>"
-                f"implied full year</div><div class='card-desc' style='margin-top:2px'>{vs}</div></div>",
-                unsafe_allow_html=True)
+    center, lo, hi, method = np.nan, np.nan, np.nan, ""
+    if common < 12 and len(full) >= 2:
+        tf = piv.loc[full].sum(axis=1)
+        shares = piv.loc[full, list(range(1, common + 1))].sum(axis=1) / tf
+        est = now / shares[shares > 0]                             # what this YTD implies under each year's pattern
+        lo, hi = float(est.min()), float(est.max())
+        if proj:
+            center = now + float(sum(proj.values()))
+            method = f"projection: {st.session_state.get('mc_pj_method', '')}"
+        else:
+            sh5 = float(shares[full[-5:]].mean())
+            center = now / sh5 if sh5 > 0 else np.nan
+            method = "seasonal share (L5Y)"
 
-    fig = go.Figure()
-    # bar: YTD (solid) + the rest of the implied year (light), no outlines
-    fig.add_trace(go.Bar(x=[0], y=[now], width=0.34, marker=dict(color=NAVY, line=dict(width=0)),
-                         text=[f"<b>{c(now)}</b><br>YTD"], textposition="inside", insidetextanchor="end",
-                         textfont=dict(color="#ffffff", size=10),
-                         hovertemplate=f"YTD: %{{y:{fmt}}} {unit}<extra></extra>"))
-    fig.add_trace(go.Bar(x=[0], y=[max(implied - now, 0)], width=0.34,
-                         marker=dict(color=rgba(NAVY, 0.16), line=dict(width=0)),
-                         hovertemplate=f"Implied full year: {format(implied, fmt)} {unit}<extra></extra>"))
-    # slim rail to the right: L10Y min-max, with avg and last-year ticks
-    rx0, rx1 = 0.30, 0.36
-    fig.add_shape(type="rect", x0=rx0, x1=rx1, y0=lo, y1=hi, fillcolor=rgba(TEAL, 0.35), line=dict(width=0))
-    fig.add_shape(type="line", x0=rx0 - 0.03, x1=rx1 + 0.03, y0=avg, y1=avg, line=dict(color=AXIS, width=2))
-    if pd.notna(last):
-        fig.add_shape(type="line", x0=rx0 - 0.03, x1=rx1 + 0.03, y0=last, y1=last, line=dict(color=RED, width=2.5))
-    notes = [(hi, f"{c(hi)} max", "#9aa3b8"), (avg, f"{c(avg)} avg", AXIS), (lo, f"{c(lo)} min", "#9aa3b8")]
-    if pd.notna(last):
-        notes.append((last, f"{c(last)} {prev_cy}", RED))
-    notes.sort(key=lambda t: -t[0])
-    gap, placed = hi * 0.06, []                                    # keep labels apart
-    for v, txt, col in notes:
-        y = v if not placed or placed[-1] - v >= gap else placed[-1] - gap
-        placed.append(y)
-        fig.add_annotation(x=rx1 + 0.06, y=y, text=txt, showarrow=False, xanchor="left", font=dict(size=10, color=col))
-    rows = len([y for y in years if y in shown or y == latest_cy]) + 5
-    style(fig, height=max(200, rows * 18 - 60), legend=None, fmt=fmt, barmode="stack",
-          xaxis=dict(range=[-0.45, 0.95], showticklabels=False, showgrid=False, zeroline=False),
-          yaxis=dict(rangemode="tozero", showticklabels=False, showgrid=False, zeroline=False))
-    fig.update_layout(margin=dict(t=6, b=6, l=6, r=6))
-    show(fig, key="mc_pace")
+    sub = f"{latest_cy} = YTD + {method}" if pd.notna(center) else "Complete crop years"
+    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} Full-Year Totals</div>"
+                f"<div class='card-desc'>{sub}</div></div>", unsafe_allow_html=True)
+
+    full_yy = [y for y in yy if y != latest_cy or common >= 12]
+    colors = [RED if y == prev_cy else "#c3cbe0" for y in full_yy]
+    fig = go.Figure(go.Bar(x=full_yy, y=tot[full_yy].values, marker=dict(color=colors, line=dict(width=0)),
+                           text=[f"<b>{c(tot[y])}</b>" if y == prev_cy else "" for y in full_yy],
+                           textposition="outside", textfont=dict(size=10, color=RED), cliponaxis=False,
+                           hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>", name="Full year"))
+    if pd.notna(center):
+        fig.add_trace(go.Bar(x=[latest_cy], y=[now], marker=dict(color=NAVY, line=dict(width=0)), name="YTD",
+                             hovertemplate=f"YTD: %{{y:{fmt}}} {unit}<extra></extra>"))
+        fig.add_trace(go.Bar(x=[latest_cy], y=[max(center - now, 0)], name="Projected",
+                             marker=dict(color=rgba(NAVY, 0.22), line=dict(color=NAVY, width=1)),
+                             error_y=dict(type="data", symmetric=False, array=[max(hi - center, 0)],
+                                          arrayminus=[max(center - lo, 0)], color=NAVY, thickness=1.5, width=6),
+                             text=[f"<b>{c(center)}</b>"], textposition="outside", textfont=dict(size=10, color=NAVY),
+                             cliponaxis=False,
+                             hovertemplate=(f"Projected full year: {format(center, fmt)} {unit}<br>"
+                                            f"Range: {format(lo, fmt)} – {format(hi, fmt)}<extra></extra>")))
+    rows = len(yy) + 5                                             # roughly the table's height, so the cards end level
+    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", barmode="stack",
+               bargap=0.35, yaxis=dict(rangemode="tozero")), key="mc_pace")
+    if pd.notna(center):
+        st.markdown(f"<div class='card-desc' style='text-align:center'>Low–high {c(lo)} – {c(hi)} "
+                    f"(this YTD under each of the last {len(full)} years' seasonality)</div>", unsafe_allow_html=True)
 
 
 def _table(ctx):

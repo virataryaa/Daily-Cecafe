@@ -409,9 +409,8 @@ def _table(ctx):
     piv, years, latest_cy, common, ref, ytd, yoy, cut, sc, fmt = (
         ctx[k_] for k_ in ("piv", "years", "latest_cy", "common", "ref", "ytd", "yoy", "cut", "sc", "fmt"))
     # rows follow the Years filter (Last 5 / Last 10 / All) so the whole page fits one screen
-    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} Monthly Exports</div>"
-                f"<div class='card-desc'>{sc} · {ctx['span'].lower()} crop years · {latest_cy} to "
-                f"{MONTHS[common - 1]} · Min/Avg/Max L{len(ref)}Y</div></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} Monthly Exports</div></div>",
+                unsafe_allow_html=True)
     _heatmap(piv, ctx["shown"], latest_cy, common, ytd, yoy, ref, fmt, cut)
 
 

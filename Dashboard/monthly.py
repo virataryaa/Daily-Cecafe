@@ -297,7 +297,11 @@ def _views(raw, gbe, page):
     section()
     _charts(ctx, proj)
     section()
-    _table(ctx)
+    t_col, y_col = st.columns([2.4, 1], gap="large")              # table | YTD bars side by side
+    with t_col:
+        _table(ctx)
+    with y_col:
+        _ytd(ctx)
 
 
 def _charts(ctx, proj):
@@ -380,19 +384,25 @@ def _charts(ctx, proj):
             nm = f"{c} (x{gbe_txt})" if c == "Soluble" else c
             fig.add_trace(go.Scatter(x=rc.index, y=rc.values, mode="lines", name=nm, line=dict(color=pal[c], width=1.8),
                                      hovertemplate=f"{nm} %{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=(300 if parts else 265), legend="bottom" if parts else None, fmt=fmt,
+        show(style(fig, height=H, legend="bottom" if parts else None, fmt=fmt,
                    yaxis=dict(autorange=True, rangemode="normal")), key=f"{k}_rolling")
 
-        # YTD under Rolling, same column, so the right side of the row ends level with the other two charts
-        heading(f"{comm} YTD {cut}", f"{u_desc} · label = YoY")
-        yy = [y for y in years if y in shown or y == latest_cy]
-        colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
-        labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
-        fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
-                               textfont=dict(size=10, color=AXIS), cliponaxis=False,
-                               hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
-        show(style(fig, height=(185 if parts else 205), legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")),
-             key=f"{k}_ytd")
+
+def _ytd(ctx):
+    """YTD bars (current crop year navy, YoY % on each bar); sits beside the table."""
+    years, latest_cy, ytd, yoy, cut, shown, sc, unit, fmt = (
+        ctx[k_] for k_ in ("years", "latest_cy", "ytd", "yoy", "cut", "shown", "sc", "unit", "fmt"))
+    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} YTD {cut}</div>"
+                f"<div class='card-desc'>{sc.split(' · ', 1)[1]} · label = YoY</div></div>", unsafe_allow_html=True)
+    yy = [y for y in years if y in shown or y == latest_cy]
+    colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
+    labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
+    fig = go.Figure(go.Bar(x=yy, y=ytd[yy].values, marker_color=colors, text=labels, textposition="outside",
+                           textfont=dict(size=10, color=AXIS), cliponaxis=False,
+                           hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>"))
+    rows = len(yy) + 5                                             # roughly the table's height, so the two end level
+    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, yaxis=dict(rangemode="tozero")),
+         key="mc_ytd")
 
 
 def _table(ctx):

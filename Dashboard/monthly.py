@@ -286,13 +286,16 @@ def render():
     gbe = float(load_settings()["soluble_gbe"])
     if st.session_state.get("mc_page") in ("Charts", "Table", "Advanced Study"):   # sections that no longer exist
         st.session_state["mc_page"] = "Charts & Table"
+    if st.session_state.get("mc_page") == "Entry":
+        st.session_state["mc_page"] = "Entry & Controls"
     with st.container(key="mc_hero"):                              # navy header: title left, tabs right
         t_col, n_col = st.columns([3, 1.4], vertical_alignment="center")
         title = t_col.empty()
-        page = n_col.radio("Section", ["Entry", "Charts & Table"], horizontal=True,
+        page = n_col.radio("Section", ["Entry & Controls", "Charts & Table"], horizontal=True,
                            label_visibility="collapsed", key="mc_page")
-    if page == "Entry":
+    if page == "Entry & Controls":
         title.markdown("<div class='mc-hero-t'>Cecafe Monthly Exports</div>", unsafe_allow_html=True)
+        _controls()
         render_input(raw, gbe)
     else:
         _views(raw, gbe, title)
@@ -324,22 +327,44 @@ def _context(raw, gbe, comm, unit, span):
         sig=(comm, unit, latest_cy, common))
 
 
+def _controls():
+    """Entry & Controls: the slow-changing settings (Unit, Crop year) that Charts & Table reads."""
+    with st.container(border=True, key="mc_filters"):
+        st.markdown("<div class='chart-head'>Chart settings</div>"
+                    "<div class='card-desc'>Used by Charts &amp; Table</div>", unsafe_allow_html=True)
+        b1, b4, b5, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
+        b1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
+        basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
+        if basis == "Custom":
+            seed("mc_cy_start", "Jul")
+            b5.selectbox("Start month", CAL, key="mc_cy_start")
+
+
+def _settings():
+    """Unit and crop-year start as set on Entry & Controls (kept across pages by app.py's KEEP list)."""
+    ss = st.session_state
+    unit = ss.get("mc_ch_unit") if ss.get("mc_ch_unit") in UNITS else list(UNITS)[0]
+    basis = ss.get("mc_cy_basis") if ss.get("mc_cy_basis") in list(CY_PRESETS) + ["Custom"] else list(CY_PRESETS)[0]
+    if basis == "Custom":
+        start = CAL.index(ss.get("mc_cy_start", "Jul")) + 1 if ss.get("mc_cy_start", "Jul") in CAL else 7
+        label = f"{CAL[start - 1]}–{CAL[(start + 10) % 12]}"
+    else:
+        start, label = CY_PRESETS[basis], basis
+    return unit, start, label
+
+
 def _views(raw, gbe, title):
     """Charts & Table: one set of controls (Type, Unit, Years, Crop year, Projection) drives the charts and the table.
     The crop-year start re-labels the data and rotates MONTHS for this view only (restored for the Entry page)."""
     global MONTHS, START
     pre = "ch"
     with st.container(border=True, key="mc_filters"):
-        b0, b1, b2, b4, b3, _ = st.columns([3.3, 1.35, 1.05, 1.75, 0.8, 0.75], vertical_alignment="bottom")
+        unit, start, cy_label = _settings()                         # set on Entry & Controls
+        b0, b2, b3, b6 = st.columns([3.3, 1.05, 0.8, 2.6], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
-        unit = b1.radio("Unit", list(UNITS), horizontal=True, key=f"mc_{pre}_unit")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
-        basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
-        if basis == "Custom":
-            seed("mc_cy_start", "Jul")
-            start = CAL.index(b4.selectbox("Start month", CAL, key="mc_cy_start")) + 1
-        else:
-            start = CY_PRESETS[basis]
+        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · crop year {cy_label}"
+                    f" · <i>change in Entry &amp; Controls</i></div>", unsafe_allow_html=True)
     saved = MONTHS, START
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
     try:

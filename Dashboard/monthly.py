@@ -538,8 +538,8 @@ def _pace(ctx, proj):
     full_yy = [y for y in yy if y != latest_cy or common >= 12]
     colors = ["#c3cbe0"] * len(full_yy)
     fig = go.Figure(go.Bar(x=full_yy, y=tot[full_yy].values, marker=dict(color=colors, line=dict(width=0)),
-                           text=[f"<b>{c(tot[y])}</b>" if y == prev_cy else "" for y in full_yy],
-                           textposition="outside", textfont=dict(size=10, color=AXIS), cliponaxis=False,
+                           text=[c(tot[y]) for y in full_yy],
+                           textposition="outside", textfont=dict(size=9, color=AXIS), cliponaxis=False,
                            hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>", name="Full year"))
     if pd.notna(center):
         fig.add_trace(go.Bar(x=[latest_cy], y=[now], marker=dict(color=NAVY, line=dict(width=0)), name="YTD",

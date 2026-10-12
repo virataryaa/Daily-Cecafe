@@ -84,14 +84,14 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
     margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); display: flex; align-items: baseline;
     justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .st-key-dx_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 12px 22px !important; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+    padding: 4px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
 .st-key-dx_hero [data-testid="stVerticalBlock"]:has(> .st-key-dx_sub) { align-items: flex-end; }
 .st-key-dx_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
-.st-key-dx_hero div[role="radiogroup"] label { padding: 6px 16px !important; }
+.st-key-dx_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
 .st-key-dx_hero div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { color: #c9d3ea !important; font-size: 13px !important; }
 .st-key-dx_hero div[role="radiogroup"] label:has(input:checked) { background: #ffffff !important; }
 .st-key-dx_hero div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
-.dx-hero-t { color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
+.dx-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
 .dx-hero-s { color: #c9d3ea; font-size: 12.5px; }
 .dx-hero-s b { color: #ffffff; }
 [class*="st-key-dx_card_"] { background: #ffffff; border: 1px solid #e6eaf2 !important; border-radius: 12px !important;
@@ -291,7 +291,6 @@ def render():
     global MONTHS, START
     st.markdown(CSS, unsafe_allow_html=True)
     df = load_raw()
-    last = df.loc[df["Bags (K)"].notna()].sort_values(["Year", "Month"]).iloc[-1]
     ss = st.session_state
     for k in ("dx_dest", "dx_span"):                                # keep values while their widget is hidden
         if k not in ss and f"_keep_{k}" in ss:
@@ -325,11 +324,9 @@ def render():
 
     start = CY_PRESETS[basis]
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
-    asof = f"Cecafe · Brazil green coffee · data to <b>{pd.Timestamp(int(last['Year']), int(last['Month']), 1):%b %Y}</b>"
 
     if detailed:
-        title.markdown(f"<div class='dx-hero-t'>{comm} Exports · Detailed Overview</div>"
-                       f"<div class='dx-hero-s'>{asof}</div>", unsafe_allow_html=True)
+        title.markdown(f"<div class='dx-hero-t'>{comm} Exports · Detailed Overview</div>", unsafe_allow_html=True)
         section("Destinations")
         _destinations(df, comm, unit, start)
         _split(df, comm, unit, start)
@@ -338,8 +335,7 @@ def render():
         return
 
     where = "all destinations" if dest == TOTAL else dest
-    title.markdown(f"<div class='dx-hero-t'>{comm} Exports · {where}</div>"
-                   f"<div class='dx-hero-s'>{asof}</div>", unsafe_allow_html=True)
+    title.markdown(f"<div class='dx-hero-t'>{comm} Exports · {where}</div>", unsafe_allow_html=True)
     raw = recrop(long_for(dest), start)
     ctx = _context(raw, comm, unit, span, dest)
     if ctx is None:

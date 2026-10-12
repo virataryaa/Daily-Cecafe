@@ -84,14 +84,18 @@ CSS = """
 .tbl td.x { font-weight: 700; }
 /* 1 + 7. Navy header bar: title left, Entry / Charts & Table on the right */
 .st-key-mc_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 12px 22px !important; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
-.mc-hero-t { color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
+    padding: 4px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+.mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
 .st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
 .st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
-.st-key-mc_hero div[role="radiogroup"] label { padding: 6px 16px !important; }
+.st-key-mc_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
 .st-key-mc_hero div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { color: #c9d3ea !important; font-size: 13px !important; }
 .st-key-mc_hero div[role="radiogroup"] label:has(input:checked) { background: #ffffff !important; }
 .st-key-mc_hero div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
+/* Compact filter card */
+.st-key-mc_filters { padding: 8px 14px 4px !important; }
+.st-key-mc_filters [data-testid="stVerticalBlock"] { gap: 0.3rem; }
+.st-key-mc_filters div[role="radiogroup"] label { padding: 3px 11px !important; }
 /* 2. Every chart / the table in a white card */
 [class*="st-key-mc_card_"] { background: #ffffff; border: 1px solid #e6eaf2 !important; border-radius: 12px !important;
     padding: 12px 16px 6px !important; box-shadow: 0 1px 3px rgba(10,36,99,.05); }
@@ -360,11 +364,10 @@ def _views(raw, gbe, title):
     pre = "ch"
     with st.container(border=True, key="mc_filters"):
         unit, start, cy_label = _settings()                         # set on Entry & Controls
-        b0, b2, b3, b6 = st.columns([3.3, 1.05, 0.8, 2.6], vertical_alignment="bottom")
+        b0, b2, b3, b6 = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
-        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · crop year {cy_label}"
-                    f" · <i>change in Entry &amp; Controls</i></div>", unsafe_allow_html=True)
+        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · {cy_label}</div>", unsafe_allow_html=True)
     saved = MONTHS, START
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
     try:

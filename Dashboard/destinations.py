@@ -319,6 +319,7 @@ def render():
 
     section("Destinations")
     _destinations(df, comm, unit, start)
+    _split(df, comm, unit, start)
 
     section("Excess vs Normal")
     _excess(df)
@@ -810,3 +811,57 @@ def _excess(df):
                 show(style(fig, height=max(260, 50 + 26 * len(pr)), legend=None,
                            xaxis=dict(showgrid=True, zeroline=True, zerolinecolor="#c3cbe0", title="lots"),
                            yaxis=dict(tickformat=None, showgrid=False), bargap=0.35), key=f"dx_exbar_{t}")
+
+
+# ── Destination split over time: stacked bars, named destinations + Others (= Brazil total - named) ──────────
+SPLIT_PAL = [NAVY, TEAL, AMBER, GREEN, RED, "#6b7fb8", "#8fc7d0", "#e2c38a", "#9fd1bb", "#b9c3de", "#d9a3a3", "#4a5578"]
+OTHERS_C = "#d5d9e3"
+
+
+def _split(df, comm, unit, start):
+    factor, fmt = UNITS[unit]
+    d = df[df["Type"].isin(TYPES[comm]) & df["Bags (K)"].notna()]
+    d = d.assign(date=pd.to_datetime(dict(year=d["Year"], month=d["Month"], day=1)))
+    wide = d.pivot_table(index="date", columns="Destination", values="Bags (K)", aggfunc="sum").sort_index()
+    if TOTAL not in wide:
+        return
+    named = [c for c in wide.columns if c != TOTAL]
+    wide["Others"] = (wide[TOTAL] - wide[named].fillna(0).sum(axis=1)).clip(lower=0)
+    wide = wide.drop(columns=TOTAL).fillna(0) * factor
+
+    with st.container(border=True, key="dx_card_split"):
+        h, w1, w2 = st.columns([2.2, 1.3, 1], vertical_alignment="center")
+        h.markdown(f"<div class='chart-head'>{comm} Exports by Destination</div>", unsafe_allow_html=True)
+        per = w1.radio("Period", ["Monthly", "Crop year"], horizontal=True, key="dx_split_per", label_visibility="collapsed")
+        mode = w2.radio("Show", ["Volume", "Share %"], horizontal=True, key="dx_split_mode", label_visibility="collapsed")
+        if per == "Monthly":
+            data = wide.iloc[-36:]
+            x = [f"{t:%b-%y}" for t in data.index]
+            note = "last 36 months"
+        else:
+            cy0 = [t.year if t.month >= start else t.year - 1 for t in wide.index]
+            data = wide.groupby(cy0).sum()
+            data = data.iloc[1:] if len(data) > 1 else data                # first crop year is partial (data from Oct 2007)
+            n_last = sum(1 for c in cy0 if c == data.index[-1])
+            x = [f"{y % 100:02d}/{(y + 1) % 100:02d}" + (" YTD" if y == data.index[-1] and n_last < 12 else "")
+                 for y in data.index]
+            note = "crop years, latest = YTD"
+        order = [c for c in data.drop(columns="Others").sum().sort_values(ascending=False).index if data[c].sum() > 0]
+        cols = order + ["Others"]
+        vals = data[cols]
+        if mode == "Share %":
+            vals = vals.div(vals.sum(axis=1).replace(0, np.nan), axis=0) * 100
+        st.markdown(f"<div class='card-desc'>{unit if mode == 'Volume' else '% of Brazil total'} · {note} · "
+                    f"Others = Brazil total minus named destinations</div>", unsafe_allow_html=True)
+        fig = go.Figure()
+        for i, c in enumerate(cols):
+            col = OTHERS_C if c == "Others" else SPLIT_PAL[i % len(SPLIT_PAL)]
+            hv = "%{y:.1f}%" if mode == "Share %" else f"%{{y:{fmt}}} {unit}"
+            fig.add_trace(go.Bar(x=x, y=vals[c].values, name=c, marker=dict(color=col, line=dict(width=0)),
+                                 hovertemplate=f"{c}: {hv}<extra></extra>"))
+        fig.update_layout(legend_traceorder="normal")
+        show(style(fig, height=460, legend="top", unified=True, fmt=".1f" if mode == "Share %" else fmt,
+                   short=unit == "Bags" and mode == "Volume", barmode="stack", bargap=0.18,
+                   xaxis=dict(type="category", tickangle=-45 if per == "Monthly" else 0),
+                   yaxis=dict(ticksuffix="%" if mode == "Share %" else "", range=[0, 100] if mode == "Share %" else None)),
+             key="dx_split")

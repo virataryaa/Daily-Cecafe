@@ -83,6 +83,14 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dx-hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px; padding: 14px 22px;
     margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); display: flex; align-items: baseline;
     justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.st-key-dx_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
+    padding: 12px 22px !important; margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+.st-key-dx_hero [data-testid="stVerticalBlock"]:has(> .st-key-dx_sub) { align-items: flex-end; }
+.st-key-dx_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
+.st-key-dx_hero div[role="radiogroup"] label { padding: 6px 16px !important; }
+.st-key-dx_hero div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { color: #c9d3ea !important; font-size: 13px !important; }
+.st-key-dx_hero div[role="radiogroup"] label:has(input:checked) { background: #ffffff !important; }
+.st-key-dx_hero div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
 .dx-hero-t { color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
 .dx-hero-s { color: #c9d3ea; font-size: 12.5px; }
 .dx-hero-s b { color: #ffffff; }
@@ -275,28 +283,54 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     df = load_raw()
     last = df.loc[df["Bags (K)"].notna()].sort_values(["Year", "Month"]).iloc[-1]
-    hero = st.empty()
+    ss = st.session_state
+    for k in ("dx_dest", "dx_span"):                                # keep values while their widget is hidden
+        if k not in ss and f"_keep_{k}" in ss:
+            ss[k] = ss[f"_keep_{k}"]
+    with st.container(key="dx_hero"):                              # navy header: title left, sub-tabs right
+        t_col, n_col = st.columns([3, 1.5], vertical_alignment="center")
+        title = t_col.empty()
+        sub = n_col.radio("View", ["Overview", "Detailed Overview"], horizontal=True, label_visibility="collapsed",
+                          key="dx_sub")
+    detailed = sub == "Detailed Overview"
 
     with st.container(border=True, key="dx_filters"):
-        b0, b2, b3, b4, b5 = st.columns([2.2, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
+        if detailed:
+            b0, b3, b4, _ = st.columns([2.2, 1.75, 1.6, 2.25], vertical_alignment="bottom")
+        else:
+            b0, b2, b3, b4, b5 = st.columns([2.2, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
         comm = b0.radio("Type", list(TYPES), horizontal=True, key="dx_comm")
         dests = [TOTAL, EUROPE_LABEL] + sorted(set().union(*[destinations_for_type(df, t) for t in TYPES[comm]]))
-        if st.session_state.get("dx_dest") not in dests:
-            st.session_state["dx_dest"] = "Belgium" if "Belgium" in dests else TOTAL
-        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="dx_span")
+        if ss.get("dx_dest") not in dests:
+            ss["dx_dest"] = "Belgium" if "Belgium" in dests else TOTAL
+        if not detailed:
+            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="dx_span")
         unit = b3.radio("Unit", list(UNITS), horizontal=True, key="dx_unit")
         basis = b4.radio("Crop year", list(CY_PRESETS), horizontal=True, key="dx_cy")
-        dest = st.radio("Destination", dests, horizontal=True, key="dx_dest",
-                        format_func=lambda d: "All (Total)" if d == TOTAL else d)
+        if not detailed:
+            dest = st.radio("Destination", dests, horizontal=True, key="dx_dest",
+                            format_func=lambda d: "All (Total)" if d == TOTAL else d)
+    for k in ("dx_dest", "dx_span"):
+        if k in ss:
+            ss[f"_keep_{k}"] = ss[k]
 
     start = CY_PRESETS[basis]
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
-    where = "all destinations" if dest == TOTAL else dest
-    hero.markdown(f"<div class='dx-hero'><span class='dx-hero-t'>{comm} Exports · {where}</span>"
-                  f"<span class='dx-hero-s'>Cecafe · Brazil green coffee · data to "
-                  f"<b>{pd.Timestamp(int(last['Year']), int(last['Month']), 1):%b %Y}</b></span></div>",
-                  unsafe_allow_html=True)
+    asof = f"Cecafe · Brazil green coffee · data to <b>{pd.Timestamp(int(last['Year']), int(last['Month']), 1):%b %Y}</b>"
 
+    if detailed:
+        title.markdown(f"<div class='dx-hero-t'>{comm} Exports · Detailed Overview</div>"
+                       f"<div class='dx-hero-s'>{asof}</div>", unsafe_allow_html=True)
+        section("Destinations")
+        _destinations(df, comm, unit, start)
+        _split(df, comm, unit, start)
+        section("Excess vs Normal")
+        _excess(df)
+        return
+
+    where = "all destinations" if dest == TOTAL else dest
+    title.markdown(f"<div class='dx-hero-t'>{comm} Exports · {where}</div>"
+                   f"<div class='dx-hero-s'>{asof}</div>", unsafe_allow_html=True)
     raw = recrop(long_for(dest), start)
     ctx = _context(raw, comm, unit, span, dest)
     if ctx is None:
@@ -304,7 +338,7 @@ def render():
         return
     with b5:
         st.markdown("<div class='dx-lbl'>Projection</div>", unsafe_allow_html=True)
-        with st.container(key=f"dxproj_{'off' if st.session_state.get('dx_pj_method', 'Off') == 'Off' else 'on'}"):
+        with st.container(key=f"dxproj_{'off' if ss.get('dx_pj_method', 'Off') == 'Off' else 'on'}"):
             proj = _projection(ctx)
 
     _charts(ctx, proj)
@@ -316,13 +350,6 @@ def render():
         _pace(ctx, proj)
     with y_col, st.container(border=True, key="dx_card_ytd"):
         _ytd(ctx)
-
-    section("Destinations")
-    _destinations(df, comm, unit, start)
-    _split(df, comm, unit, start)
-
-    section("Excess vs Normal")
-    _excess(df)
 
 
 def _context(raw, comm, unit, span, dest):

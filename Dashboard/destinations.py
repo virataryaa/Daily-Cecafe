@@ -320,6 +320,9 @@ def render():
     section("Destinations")
     _destinations(df, comm, unit, start)
 
+    section("Excess vs Normal")
+    _excess(df)
+
 
 def _context(raw, comm, unit, span, dest):
     factor, fmt = UNITS[unit]
@@ -715,3 +718,95 @@ def _destinations(df, comm, unit, start):
         show(style(fig, height=max(320, 60 + 30 * len(ch)), legend=None, fmt=fmt,
                    xaxis=dict(showgrid=True, zeroline=True, zerolinecolor="#c3cbe0", tickformat=fmt),
                    yaxis=dict(tickformat=None, showgrid=False), bargap=0.35), key="dx_destchg")
+
+
+# ── Excess vs Normal: actual minus a normal baseline, per destination, in K bags and exchange lots ──────────
+BAGS_PER_LOT = {"Arabica": 283.5, "Robusta": 10_000 / 60}
+BASELINES = {"6M": "avg of the 6 months before", "1Y": "same month last year", "3Y": "same month, prior 3 years avg",
+             "5Y": "same month, prior 5 years avg", "10Y": "same month, prior 10 years avg"}
+
+
+def _baseline(sub, year, month, method):
+    """Normal level at (year, month). 6M = trailing 6 months; nY = same calendar month over the prior n years."""
+    if method == "6M":
+        key = sub["Year"] * 12 + sub["Month"]
+        cur = year * 12 + month
+        win = sub[(key < cur) & (key >= cur - 6)]
+    else:
+        n = int(method[:-1])
+        win = sub[(sub["Month"] == month) & (sub["Year"] < year) & (sub["Year"] >= year - n)]
+    v = win["Bags (K)"].dropna()
+    return float(v.mean()) if len(v) else np.nan
+
+
+def _ex_row(name, actual, base, per_lot):
+    ex = actual - base if pd.notna(actual) and pd.notna(base) else np.nan
+    return dict(name=name, actual=actual, base=base, ex=ex,
+                pct=ex / base * 100 if pd.notna(ex) and base else np.nan,
+                lots=ex * 1000 / per_lot if pd.notna(ex) else np.nan)
+
+
+def _excess_rows(df, type_, year, month, method):
+    per_lot = BAGS_PER_LOT[type_]
+    typed = df[(df["Type"] == type_) & df["Bags (K)"].notna()]
+    rows = []
+    for d in sorted(x for x in typed["Destination"].unique() if x != TOTAL):
+        sub = typed[typed["Destination"] == d]
+        cur = sub.loc[(sub["Year"] == year) & (sub["Month"] == month), "Bags (K)"]
+        rows.append(_ex_row(d, float(cur.iloc[0]) if len(cur) else np.nan, _baseline(sub, year, month, method), per_lot))
+    rows.sort(key=lambda r: r["ex"] if pd.notna(r["ex"]) else -np.inf, reverse=True)
+    eu = [r for r in rows if r["name"] in EUROPE_MEMBERS]
+    tots = []
+    if eu:
+        tots.append(_ex_row(EUROPE_LABEL, np.nansum([r["actual"] for r in eu]), np.nansum([r["base"] for r in eu]), per_lot))
+    tots.append(_ex_row("Named destinations", np.nansum([r["actual"] for r in rows]),
+                        np.nansum([r["base"] for r in rows]), per_lot))
+    sub = typed[typed["Destination"] == TOTAL]                       # true Brazil total, incl. unnamed buyers
+    cur = sub.loc[(sub["Year"] == year) & (sub["Month"] == month), "Bags (K)"]
+    if len(cur):
+        tots.append(_ex_row("Brazil total", float(cur.iloc[0]), _baseline(sub, year, month, method), per_lot))
+    return rows, tots
+
+
+def _excess(df):
+    months = sorted({(int(y), int(m)) for y, m in df.loc[df["Bags (K)"].notna(), ["Year", "Month"]].itertuples(index=False)})
+    labels = [f"{CAL[m - 1]} {y}" for y, m in months]
+    c1, c2, _ = st.columns([1.2, 2.6, 3], vertical_alignment="bottom")
+    with c1, st.container(key="dx_exmonth_wrap"):
+        lab = st.selectbox("Month", labels[::-1], key="dx_exmonth")
+    method = c2.radio("Normal", list(BASELINES), index=3, horizontal=True, key="dx_exbase")
+    year, month = months[labels.index(lab)]
+    st.markdown(f"<div class='card-desc'>Normal = {BASELINES[method]}. Lots: Arabica 283.5 bags, Robusta 166.7 bags.</div>",
+                unsafe_allow_html=True)
+
+    def num(v, sign=False):
+        return "" if pd.isna(v) else (f"{v:+,.0f}" if sign else f"{v:,.0f}")
+
+    def ud(v):
+        return "up" if pd.notna(v) and v >= 0 else "down"
+
+    cols = st.columns(2, gap="medium")
+    for col, t in zip(cols, ["Arabica", "Robusta"]):
+        rows, tots = _excess_rows(df, t, year, month, method)
+        with col, st.container(border=True, key=f"dx_card_ex_{t}"):
+            card_head(f"{t} · Excess vs Normal · {lab}", f"K bags and lots · normal = {method}")
+            body = [t_row(r["name"], [t_cell(num(r["actual"])), t_cell(num(r["base"])),
+                                      t_cell(num(r["ex"], True), ud(r["ex"])), t_cell(num(r["lots"], True), ud(r["lots"])),
+                                      t_cell("" if pd.isna(r["pct"]) else f"{r['pct']:+.0f}%", ud(r["pct"]))])
+                    for r in rows]
+            body.append(t_sep(6))
+            body += [t_row(r["name"], [t_cell(num(r["actual"]), "x"), t_cell(num(r["base"])),
+                                       t_cell(num(r["ex"], True), ud(r["ex"])), t_cell(num(r["lots"], True), ud(r["lots"])),
+                                       t_cell("" if pd.isna(r["pct"]) else f"{r['pct']:+.0f}%", ud(r["pct"]))], "hl")
+                     for r in tots]
+            t_render(["Actual", "Normal", "Excess", "Lots", "vs Normal"], body, corner="Destination")
+            pr = [r for r in rows if pd.notna(r["lots"])][::-1]
+            if pr:
+                fig = go.Figure(go.Bar(y=[r["name"] for r in pr], x=[r["lots"] for r in pr], orientation="h",
+                                       marker_color=[GREEN if r["lots"] >= 0 else RED for r in pr],
+                                       text=[f"{r['lots']:+,.0f}" for r in pr], textposition="outside",
+                                       textfont=dict(size=10, color=AXIS), cliponaxis=False,
+                                       hovertemplate="%{y}: %{x:+,.0f} lots<extra></extra>"))
+                show(style(fig, height=max(260, 50 + 26 * len(pr)), legend=None,
+                           xaxis=dict(showgrid=True, zeroline=True, zerolinecolor="#c3cbe0", title="lots"),
+                           yaxis=dict(tickformat=None, showgrid=False), bargap=0.35), key=f"dx_exbar_{t}")

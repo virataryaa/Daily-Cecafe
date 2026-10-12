@@ -247,7 +247,7 @@ last_date = df.dropna(how="all").index.max()
 # Keep a copy of the ones we care about and put it back before the widgets are created.
 KEEP = ["main_tab", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_ch_comm", "mc_ch_unit", "mc_ch_span", "mc_tb_comm", "mc_tb_unit",
         "mc_page", "mc_view", "mc_pj_method", "mc_cy_basis", "mc_cy_start", "mc_edit_years",
-        "dx_comm", "dx_dest", "dx_span", "dx_unit", "dx_cy", "dx_view", "dx_cumview", "dx_roll", "dx_pj_method"]
+        "dx_comm", "dx_dest", "dx_span", "dx_unit", "dx_cy", "dx_view", "dx_cumview", "dx_roll", "dx_pj_method", "dx_exmonth", "dx_exbase"]
 for _k in KEEP:
     if _k not in st.session_state and f"_keep_{_k}" in st.session_state:
         st.session_state[_k] = st.session_state[f"_keep_{_k}"]

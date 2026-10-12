@@ -277,6 +277,15 @@ def _cv(v, unit, fmt):
     return f"{v / 1e6:.1f}M" if unit == "Bags" else format(v, fmt)
 
 
+def _ranked_dests(df, comm):
+    """Named destinations, biggest buyer first (last 12 reported months, selected Type)."""
+    d = df[df["Type"].isin(TYPES[comm]) & df["Bags (K)"].notna() & (df["Destination"] != TOTAL)]
+    key = d["Year"] * 12 + d["Month"]
+    recent = d[key > key.max() - 12].groupby("Destination")["Bags (K)"].sum()
+    names = set().union(*[destinations_for_type(df, t) for t in TYPES[comm]])
+    return sorted(names, key=lambda n: -recent.get(n, 0.0))
+
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 def render():
     global MONTHS, START
@@ -300,7 +309,7 @@ def render():
         else:
             b0, b2, b3, b4, b5 = st.columns([2.2, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
         comm = b0.radio("Type", list(TYPES), horizontal=True, key="dx_comm")
-        dests = [TOTAL, EUROPE_LABEL] + sorted(set().union(*[destinations_for_type(df, t) for t in TYPES[comm]]))
+        dests = _ranked_dests(df, comm) + [EUROPE_LABEL, TOTAL]
         if ss.get("dx_dest") not in dests:
             ss["dx_dest"] = "Belgium" if "Belgium" in dests else TOTAL
         if not detailed:

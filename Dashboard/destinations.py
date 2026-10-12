@@ -282,7 +282,7 @@ def render():
         comm = b0.radio("Type", list(TYPES), horizontal=True, key="dx_comm")
         dests = [TOTAL, EUROPE_LABEL] + sorted(set().union(*[destinations_for_type(df, t) for t in TYPES[comm]]))
         if st.session_state.get("dx_dest") not in dests:
-            st.session_state["dx_dest"] = TOTAL
+            st.session_state["dx_dest"] = "Belgium" if "Belgium" in dests else TOTAL
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="dx_span")
         unit = b3.radio("Unit", list(UNITS), horizontal=True, key="dx_unit")
         basis = b4.radio("Crop year", list(CY_PRESETS), horizontal=True, key="dx_cy")

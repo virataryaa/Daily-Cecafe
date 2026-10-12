@@ -246,7 +246,8 @@ last_date = df.dropna(how="all").index.max()
 # Widgets that are not drawn in a run lose their value (e.g. the Daily controls while Monthly is open).
 # Keep a copy of the ones we care about and put it back before the widgets are created.
 KEEP = ["main_tab", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_ch_comm", "mc_ch_unit", "mc_ch_span", "mc_tb_comm", "mc_tb_unit",
-        "mc_page", "mc_view", "mc_pj_method", "mc_cy_basis", "mc_cy_start", "mc_edit_years"]
+        "mc_page", "mc_view", "mc_pj_method", "mc_cy_basis", "mc_cy_start", "mc_edit_years",
+        "dx_comm", "dx_dest", "dx_span", "dx_unit", "dx_cy", "dx_view", "dx_cumview", "dx_roll", "dx_pj_method"]
 for _k in KEEP:
     if _k not in st.session_state and f"_keep_{_k}" in st.session_state:
         st.session_state[_k] = st.session_state[f"_keep_{_k}"]
@@ -1011,7 +1012,7 @@ def render_history():
 # LAYOUT
 # ---------------------------------------------------------------------------------------------
 # main tabs (one underlined row); each one gets its own `if main == ...` block below.
-MAIN = ["Daily Cecafe", "Monthly Cecafe"]
+MAIN = ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination"]
 with st.container(key="main"):
     main = st.radio("Section", MAIN, horizontal=True, label_visibility="collapsed", key="main_tab")
 
@@ -1060,6 +1061,9 @@ if main == "Daily Cecafe":
 elif main == "Monthly Cecafe":
     import monthly
     monthly.render()
+elif main == "Exports To Destination":
+    import destinations
+    destinations.render()
 
 for _k in KEEP:                                                # remember the values for the next run
     if _k in st.session_state:

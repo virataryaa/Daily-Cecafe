@@ -278,15 +278,16 @@ def render():
     hero = st.empty()
 
     with st.container(border=True, key="dx_filters"):
-        b0, b1, b2, b3, b4, b5 = st.columns([2.2, 1.5, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
+        b0, b2, b3, b4, b5 = st.columns([2.2, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
         comm = b0.radio("Type", list(TYPES), horizontal=True, key="dx_comm")
         dests = [TOTAL, EUROPE_LABEL] + sorted(set().union(*[destinations_for_type(df, t) for t in TYPES[comm]]))
         if st.session_state.get("dx_dest") not in dests:
             st.session_state["dx_dest"] = TOTAL
-        dest = b1.selectbox("Destination", dests, key="dx_dest")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="dx_span")
         unit = b3.radio("Unit", list(UNITS), horizontal=True, key="dx_unit")
         basis = b4.radio("Crop year", list(CY_PRESETS), horizontal=True, key="dx_cy")
+        dest = st.radio("Destination", dests, horizontal=True, key="dx_dest",
+                        format_func=lambda d: "All (Total)" if d == TOTAL else d)
 
     start = CY_PRESETS[basis]
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]

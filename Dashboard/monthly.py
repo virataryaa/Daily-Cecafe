@@ -291,7 +291,7 @@ def render():
     with st.container(key="mc_hero"):                              # navy header: title left, tabs right
         t_col, n_col = st.columns([3, 1.4], vertical_alignment="center")
         title = t_col.empty()
-        page = n_col.radio("Section", ["Entry & Controls", "Charts & Table"], horizontal=True,
+        page = n_col.radio("Section", ["Charts & Table", "Entry & Controls"], horizontal=True,
                            label_visibility="collapsed", key="mc_page")
     if page == "Entry & Controls":
         title.markdown("<div class='mc-hero-t'>Cecafe Monthly Exports</div>", unsafe_allow_html=True)

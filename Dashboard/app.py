@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Cecafe Daily", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Cecafe Daily", layout="wide", initial_sidebar_state="expanded")
 
 NAVY = "#0a2463"
 TEAL = "#1f8a9c"
@@ -69,11 +69,12 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
     background: #ffffff; border: 1px solid #e3e7f0 !important; border-radius: 12px;
     box-shadow: 0 1px 3px rgba(10,36,99,0.06); }
-.st-key-main div[role="radiogroup"] { background: transparent; border-bottom: 2px solid #dfe3ee; border-radius: 0; padding: 0; gap: 6px; display: flex; width: 100%; }
-.st-key-main div[role="radiogroup"] label { background: transparent !important; border-radius: 0 !important; padding: 8px 16px !important; margin-bottom: -2px !important; border-bottom: 3px solid transparent; }
-.st-key-main div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 17px !important; font-weight: 700; color: #7a86a8 !important; }
-.st-key-main div[role="radiogroup"] label:has(input:checked) { background: transparent !important; border-bottom: 3px solid #0a2463 !important; }
-.st-key-main div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; }
+/* Section selector in the sidebar: large stacked pills, as in Daily Miner */
+[data-testid="stSidebarUserContent"] { padding-top: 1rem !important; }
+[data-testid="stSidebar"] div[role="radiogroup"] { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: 22px; padding: 5px; gap: 3px; }
+[data-testid="stSidebar"] div[role="radiogroup"] label { padding: 8px 18px !important; }
+[data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 15px !important; }
+.sb-label { font-size: 11px; color: #7a86a8; text-transform: uppercase; letter-spacing: .06em; margin: 6px 0 4px; }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
 .st-key-monthsel { display: flex; justify-content: flex-end; }
 .st-key-monthsel [data-baseweb="select"] { min-width: 210px; max-width: 250px; margin-left: auto; }
@@ -261,6 +262,9 @@ with st.sidebar:
     st.markdown("<div class='sb-title'>Cecafe</div>", unsafe_allow_html=True)
     st.markdown("<div class='sb-caption'>Brazil coffee exports: daily registrations and dispatched (Daily Cecafe), "
                 "crop-year monthly exports (Monthly Cecafe). Bags.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sb-label'>Section</div>", unsafe_allow_html=True)
+    main = st.radio("Section", ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
+                    label_visibility="collapsed", key="main_tab")
 
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
 MONTH_CHOICES = labels[::-1][:12]                              # newest first, last 12 months
@@ -1011,11 +1015,7 @@ def render_history():
 # ---------------------------------------------------------------------------------------------
 # LAYOUT
 # ---------------------------------------------------------------------------------------------
-# main tabs (one underlined row); each one gets its own `if main == ...` block below.
-MAIN = ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination"]
-with st.container(key="main"):
-    main = st.radio("Section", MAIN, horizontal=True, label_visibility="collapsed", key="main_tab")
-
+# the section is picked in the sidebar (see above); each one gets its own `if main == ...` block below.
 if main == "Daily Cecafe":
     st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pill'>{MON}</span></div>",
                 unsafe_allow_html=True)

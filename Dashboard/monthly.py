@@ -84,7 +84,7 @@ CSS = """
 .tbl td.x { font-weight: 700; }
 /* 1 + 7. Navy header bar: title left, Entry / Charts & Table on the right */
 .st-key-mc_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 10px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+    padding: 10px 18px !important; margin-bottom: 8px; min-height: 52px; justify-content: center; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
 .mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
 .st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
 .st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
@@ -363,6 +363,7 @@ def _views(raw, gbe, title):
         unit, start, cy_label = _settings()                         # set on Daily & Monthly Entry
         b0, b2, b3, b6 = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
+        seed("mc_ch_span", "Last 10")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
         b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · {cy_label}</div>", unsafe_allow_html=True)
     saved = MONTHS, START

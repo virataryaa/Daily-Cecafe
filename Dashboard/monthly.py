@@ -305,6 +305,13 @@ def render():
         _views(raw, gbe, title)
 
 
+def render_entry():
+    """Monthly entry grid on its own, for the sidebar's Entry section."""
+    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown("<div class='page-title'>Monthly Cecafe entry</div>", unsafe_allow_html=True)
+    render_input(load(), float(load_settings()["soluble_gbe"]))
+
+
 def _context(raw, gbe, comm, unit, span):
     """Everything the charts and the table need for one selection. None when there is no data."""
     factor, fmt = UNITS[unit]

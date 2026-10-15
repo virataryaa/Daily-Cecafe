@@ -246,7 +246,7 @@ last_date = df.dropna(how="all").index.max()
 
 # Widgets that are not drawn in a run lose their value (e.g. the Daily controls while Monthly is open).
 # Keep a copy of the ones we care about and put it back before the widgets are created.
-KEEP = ["main_tab", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_ch_comm", "mc_ch_unit", "mc_ch_span", "mc_tb_comm", "mc_tb_unit",
+KEEP = ["main_tab", "entry_sub", "page", "month_sel", "years", "pct_kind", "pct_span", "pct_connect", "mc_ch_comm", "mc_ch_unit", "mc_ch_span", "mc_tb_comm", "mc_tb_unit",
         "mc_page", "mc_view", "mc_pj_method", "mc_cy_basis", "mc_cy_start", "mc_edit_years",
         "dx_comm", "dx_dest", "dx_span", "dx_unit", "dx_cy", "dx_view", "dx_cumview", "dx_roll", "dx_pj_method", "dx_exmonth", "dx_exbase", "dx_split_per", "dx_split_mode", "dx_sub"]
 for _k in KEEP:
@@ -263,7 +263,7 @@ with st.sidebar:
     st.markdown("<div class='sb-caption'>Brazil coffee exports: daily registrations and dispatched (Daily Cecafe), "
                 "crop-year monthly exports (Monthly Cecafe). Bags.</div>", unsafe_allow_html=True)
     st.markdown("<div class='sb-label'>Section</div>", unsafe_allow_html=True)
-    main = st.radio("Section", ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
+    main = st.radio("Section", ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination", "Entry"],
                     label_visibility="collapsed", key="main_tab")
 
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
@@ -1012,6 +1012,17 @@ def render_history():
                     + "".join(f"<th>{c}</th>" for c in ALL) + "<th>Via</th></tr>" + rows + "</table>", unsafe_allow_html=True)
 
 
+def render_daily_entry():
+    le, ri = st.columns([1, 1.05], gap="medium")
+    with le, st.container(border=True):
+        render_entry_grid()
+    with ri, st.container(border=True):
+        render_table()
+    if entry_enabled():
+        with st.expander("Save history", expanded=False):
+            render_history()
+
+
 # ---------------------------------------------------------------------------------------------
 # LAYOUT
 # ---------------------------------------------------------------------------------------------
@@ -1028,14 +1039,7 @@ if main == "Daily Cecafe":
         st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
                      format_func=lambda s: f"Month  |  {s}")
     if page == "Entry":
-        le, ri = st.columns([1, 1.05], gap="medium")
-        with le, st.container(border=True):
-            render_entry_grid()
-        with ri, st.container(border=True):
-            render_table()
-        if entry_enabled():
-            with st.expander("Save history", expanded=False):
-                render_history()
+        render_daily_entry()
     elif page == "Registrations":
         oc = st.columns([1.2, 1.8, 5], vertical_alignment="center")
         with oc[0]:
@@ -1064,6 +1068,22 @@ elif main == "Monthly Cecafe":
 elif main == "Exports To Destination":
     import destinations
     destinations.render()
+elif main == "Entry":
+    # one place for both entry grids: Daily (per-day MTD) and Monthly (crop-year exports)
+    nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
+    with nav_l, st.container(key="entry_nav"):
+        sub = st.radio("Entry", ["Daily Cecafe", "Monthly Cecafe"], horizontal=True,
+                       label_visibility="collapsed", key="entry_sub")
+    if sub == "Daily Cecafe":
+        with nav_r, st.container(key="monthsel"):
+            st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
+                         format_func=lambda s: f"Month  |  {s}")
+        st.markdown(f"<div class='page-title'>Daily Cecafe entry <span class='pill'>{MON}</span></div>",
+                    unsafe_allow_html=True)
+        render_daily_entry()
+    else:
+        import monthly
+        monthly.render_entry()
 
 for _k in KEEP:                                                # remember the values for the next run
     if _k in st.session_state:

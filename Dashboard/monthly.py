@@ -288,25 +288,13 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
-    if st.session_state.get("mc_page") in ("Charts", "Table", "Advanced Study"):   # sections that no longer exist
-        st.session_state["mc_page"] = "Charts & Table"
-    if st.session_state.get("mc_page") == "Entry":
-        st.session_state["mc_page"] = "Entry & Controls"
-    with st.container(key="mc_hero"):                              # navy header: title left, tabs right
-        t_col, n_col = st.columns([3, 1.4], vertical_alignment="center")
-        title = t_col.empty()
-        page = n_col.radio("Section", ["Charts & Table", "Entry & Controls"], horizontal=True,
-                           label_visibility="collapsed", key="mc_page")
-    if page == "Entry & Controls":
-        title.markdown("<div class='mc-hero-t'>Cecafe Monthly Exports</div>", unsafe_allow_html=True)
-        _controls()
-        render_input(raw, gbe)
-    else:
-        _views(raw, gbe, title)
+    with st.container(key="mc_hero"):                              # navy header: title
+        title = st.empty()
+    _views(raw, gbe, title)
 
 
 def render_entry():
-    """Monthly entry grid on its own, for the sidebar's Entry section."""
+    """Monthly entry grid, for the sidebar's Daily & Monthly Entry section."""
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown("<div class='page-title'>Monthly Cecafe entry</div>", unsafe_allow_html=True)
     render_input(load(), float(load_settings()["soluble_gbe"]))
@@ -338,21 +326,8 @@ def _context(raw, gbe, comm, unit, span):
         sig=(comm, unit, latest_cy, common))
 
 
-def _controls():
-    """Entry & Controls: the slow-changing settings (Unit, Crop year) that Charts & Table reads."""
-    with st.container(border=True, key="mc_filters"):
-        st.markdown("<div class='chart-head'>Chart settings</div>"
-                    "<div class='card-desc'>Used by Charts &amp; Table</div>", unsafe_allow_html=True)
-        b1, b4, b5, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
-        b1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
-        basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
-        if basis == "Custom":
-            seed("mc_cy_start", "Jul")
-            b5.selectbox("Start month", CAL, key="mc_cy_start")
-
-
 def _settings():
-    """Unit and crop-year start as set on Entry & Controls (kept across pages by app.py's KEEP list)."""
+    """Unit and crop-year start from the filter bar (kept across pages by app.py's KEEP list)."""
     ss = st.session_state
     unit = ss.get("mc_ch_unit") if ss.get("mc_ch_unit") in UNITS else list(UNITS)[0]
     basis = ss.get("mc_cy_basis") if ss.get("mc_cy_basis") in list(CY_PRESETS) + ["Custom"] else list(CY_PRESETS)[0]
@@ -370,11 +345,15 @@ def _views(raw, gbe, title):
     global MONTHS, START
     pre = "ch"
     with st.container(border=True, key="mc_filters"):
-        unit, start, cy_label = _settings()                         # set on Entry & Controls
-        b0, b2, b3, b6 = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
+        b0, b2, b3, _ = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
-        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · {cy_label}</div>", unsafe_allow_html=True)
+        c1, c2, c3, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
+        c1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
+        if c2.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis") == "Custom":
+            seed("mc_cy_start", "Jul")
+            c3.selectbox("Start month", CAL, key="mc_cy_start")
+        unit, start, cy_label = _settings()
     saved = MONTHS, START
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
     try:

@@ -74,6 +74,9 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 [data-testid="stSidebar"] div[role="radiogroup"] { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: 22px; padding: 5px; gap: 3px; }
 [data-testid="stSidebar"] div[role="radiogroup"] label { padding: 8px 18px !important; }
 [data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 15px !important; }
+/* Daily & Monthly Entry (first sidebar pill) and its sub-tabs: dark orange when selected */
+[data-testid="stSidebar"] div[role="radiogroup"] label:first-of-type:has(input:checked),
+.st-key-entry_nav div[role="radiogroup"] label:has(input:checked) { background: #c2410c !important; }
 .sb-label { font-size: 11px; color: #7a86a8; text-transform: uppercase; letter-spacing: .06em; margin: 6px 0 4px; }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
 .st-key-monthsel { display: flex; justify-content: flex-end; }
@@ -82,9 +85,6 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
     background: #ffffff !important; box-shadow: 0 1px 5px rgba(10,36,99,0.14); min-height: 40px; padding-left: 8px; }
 .st-key-monthsel [data-baseweb="select"] div, .st-key-monthsel [data-baseweb="select"] span { color: #0a2463 !important; font-weight: 600; }
 .st-key-monthsel [data-baseweb="select"] svg { fill: #0a2463 !important; }
-.st-key-nav div[role="radiogroup"] label:first-of-type div[data-testid="stMarkdownContainer"] p { color: #1f8a9c !important; font-weight: 700; }
-.st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) { background: #1f8a9c !important; }
-.st-key-nav div[role="radiogroup"] label:first-of-type:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
 .st-key-nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 14px !important; }
 .page-title { color: #0a2463; font-weight: 700; font-size: 1.25rem; margin: 0 0 6px 0; }
 .card-title { color: #0a2463; font-weight: 700; font-size: 1rem; margin-bottom: 2px; }
@@ -253,6 +253,12 @@ for _k in KEEP:
     if _k not in st.session_state and f"_keep_{_k}" in st.session_state:
         st.session_state[_k] = st.session_state[f"_keep_{_k}"]
 
+# the Entry pages moved to the sidebar's "Daily & Monthly Entry" section
+if st.session_state.get("main_tab") == "Entry":
+    st.session_state["main_tab"] = "Daily & Monthly Entry"
+if st.session_state.get("page") == "Entry":
+    st.session_state["page"] = "Registrations"
+
 TODAY = pd.Timestamp.today()
 # months with data, plus the running calendar month so its first day can be entered
 ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month)})
@@ -263,8 +269,8 @@ with st.sidebar:
     st.markdown("<div class='sb-caption'>Brazil coffee exports: daily registrations and dispatched (Daily Cecafe), "
                 "crop-year monthly exports (Monthly Cecafe). Bags.</div>", unsafe_allow_html=True)
     st.markdown("<div class='sb-label'>Section</div>", unsafe_allow_html=True)
-    main = st.radio("Section", ["Daily Cecafe", "Monthly Cecafe", "Exports To Destination", "Entry"],
-                    label_visibility="collapsed", key="main_tab")
+    main = st.radio("Section", ["Daily & Monthly Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
+                    index=1, label_visibility="collapsed", key="main_tab")          # opens on Daily Cecafe
 
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
 MONTH_CHOICES = labels[::-1][:12]                              # newest first, last 12 months
@@ -1033,14 +1039,12 @@ if main == "Daily Cecafe":
     # one row: pill tabs on the left (a radio, so only the open page is computed), month dropdown on the right
     nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
     with nav_l, st.container(key="nav"):
-        page = st.radio("Page", ["Entry", "Registrations", "Dispatched", "Advanced Study"], horizontal=True,
+        page = st.radio("Page", ["Registrations", "Dispatched", "Advanced Study"], horizontal=True,
                         label_visibility="collapsed", key="page")
     with nav_r, st.container(key="monthsel"):
         st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
                      format_func=lambda s: f"Month  |  {s}")
-    if page == "Entry":
-        render_daily_entry()
-    elif page == "Registrations":
+    if page == "Registrations":
         oc = st.columns([1.2, 1.8, 5], vertical_alignment="center")
         with oc[0]:
             yrs = st.radio("Years", ["Last 2", "All"], horizontal=True, label_visibility="collapsed", key="years")
@@ -1068,7 +1072,7 @@ elif main == "Monthly Cecafe":
 elif main == "Exports To Destination":
     import destinations
     destinations.render()
-elif main == "Entry":
+elif main == "Daily & Monthly Entry":
     # one place for both entry grids: Daily (per-day MTD) and Monthly (crop-year exports)
     nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
     with nav_l, st.container(key="entry_nav"):

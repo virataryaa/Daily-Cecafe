@@ -82,10 +82,10 @@ CSS = """
 .tbl td, .tbl th { padding-left: 9px; padding-right: 9px; }
 .tbl-head { text-align: center; margin-top: 4px; }
 .tbl td.x { font-weight: 700; }
-/* 1 + 7. Navy header bar: title left, Entry / Charts & Table on the right */
-.st-key-mc_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 10px 18px !important; margin-bottom: 8px; min-height: 52px; justify-content: center; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
-.mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
+/* 1 + 7. Navy header bar: the title div itself is the bar, so it always wraps the text */
+.mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3;
+    background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
+    padding: 16px 22px; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
 .st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
 .st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
 .st-key-mc_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
@@ -288,9 +288,7 @@ def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
-    with st.container(key="mc_hero"):                              # navy header: title
-        t_col, _ = st.columns([3, 1.4], vertical_alignment="center")
-        title = t_col.empty()
+    title = st.empty()                                             # navy header bar, filled by _views
     _views(raw, gbe, title)
 
 

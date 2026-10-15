@@ -266,8 +266,6 @@ labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
 with st.sidebar:
     st.markdown("<div class='sb-title'>Cecafe</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sb-caption'>Brazil coffee exports: daily registrations and dispatched (Daily Cecafe), "
-                "crop-year monthly exports (Monthly Cecafe). Bags.</div>", unsafe_allow_html=True)
     st.markdown("<div class='sb-label'>Section</div>", unsafe_allow_html=True)
     main = st.radio("Section", ["Daily & Monthly Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
                     index=1, label_visibility="collapsed", key="main_tab")          # opens on Daily Cecafe

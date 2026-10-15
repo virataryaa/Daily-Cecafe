@@ -84,7 +84,7 @@ CSS = """
 .tbl td.x { font-weight: 700; }
 /* 1 + 7. Navy header bar: title left, Entry / Charts & Table on the right */
 .st-key-mc_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 4px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+    padding: 10px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
 .mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
 .st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
 .st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
@@ -289,7 +289,8 @@ def render():
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
     with st.container(key="mc_hero"):                              # navy header: title
-        title = st.empty()
+        t_col, _ = st.columns([3, 1.4], vertical_alignment="center")
+        title = t_col.empty()
     _views(raw, gbe, title)
 
 
@@ -297,6 +298,7 @@ def render_entry():
     """Monthly entry grid, for the sidebar's Daily & Monthly Entry section."""
     st.markdown(CSS, unsafe_allow_html=True)
     st.markdown("<div class='page-title'>Monthly Cecafe entry</div>", unsafe_allow_html=True)
+    _controls()
     render_input(load(), float(load_settings()["soluble_gbe"]))
 
 
@@ -326,8 +328,21 @@ def _context(raw, gbe, comm, unit, span):
         sig=(comm, unit, latest_cy, common))
 
 
+def _controls():
+    """Monthly entry page: the slow-changing settings (Unit, Crop year) that Charts & Table reads."""
+    with st.container(border=True, key="mc_filters"):
+        st.markdown("<div class='chart-head'>Chart settings</div>"
+                    "<div class='card-desc'>Used by Charts &amp; Table</div>", unsafe_allow_html=True)
+        b1, b4, b5, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
+        b1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
+        basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
+        if basis == "Custom":
+            seed("mc_cy_start", "Jul")
+            b5.selectbox("Start month", CAL, key="mc_cy_start")
+
+
 def _settings():
-    """Unit and crop-year start from the filter bar (kept across pages by app.py's KEEP list)."""
+    """Unit and crop-year start as set on Daily & Monthly Entry (kept across pages by app.py's KEEP list)."""
     ss = st.session_state
     unit = ss.get("mc_ch_unit") if ss.get("mc_ch_unit") in UNITS else list(UNITS)[0]
     basis = ss.get("mc_cy_basis") if ss.get("mc_cy_basis") in list(CY_PRESETS) + ["Custom"] else list(CY_PRESETS)[0]
@@ -345,15 +360,11 @@ def _views(raw, gbe, title):
     global MONTHS, START
     pre = "ch"
     with st.container(border=True, key="mc_filters"):
-        b0, b2, b3, _ = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
+        unit, start, cy_label = _settings()                         # set on Daily & Monthly Entry
+        b0, b2, b3, b6 = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
         comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
         span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
-        c1, c2, c3, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
-        c1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
-        if c2.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis") == "Custom":
-            seed("mc_cy_start", "Jul")
-            c3.selectbox("Start month", CAL, key="mc_cy_start")
-        unit, start, cy_label = _settings()
+        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · {cy_label}</div>", unsafe_allow_html=True)
     saved = MONTHS, START
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
     try:

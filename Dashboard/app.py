@@ -1100,8 +1100,10 @@ div[role="radiogroup"] label:has(input:checked), .stTabs [aria-selected="true"] 
 div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; }
 [data-testid="stMain"] [data-testid="stPlotlyChart"] { background: #ffffff; border: 1px solid rgba(43,74,138,.12); border-radius: 16px; padding: 6px 8px;
   box-shadow: 0 6px 22px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95); }
-.dtab, .tbl-wrap { border: 1px solid rgba(43,74,138,.14) !important; border-radius: 12px; overflow: hidden;
-  box-shadow: 0 6px 22px rgba(30,58,110,.07); background: #ffffff !important; }
+.dtab, .tbl-wrap { border: 1px solid rgba(43,74,138,.14) !important; border-radius: 12px; background: #ffffff !important; box-shadow: none !important; }
+.tbl-wrap { overflow-x: auto; margin-bottom: 12px !important; }          /* stays inside its card */
+[class*="st-key-mc_card_"], [class*="st-key-dx_card_"] { padding-bottom: 12px !important; border-color: rgba(43,74,138,.12) !important;
+  box-shadow: 0 6px 22px rgba(30,58,110,.07) !important; }
 .dtab { border-collapse: separate !important; border-spacing: 0; }
 .dtab .sub th { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; color: #ffffff !important; }
 .dtab .g2 { background: #e6edf8 !important; } .dtab .g3 { background: #e8f2f6 !important; }

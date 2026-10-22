@@ -1087,6 +1087,37 @@ elif main == "Daily & Monthly Entry":
         import monthly
         monthly.render_entry()
 
+# ── ICE glacier theme (same family as Coffee SnD / Commodity Calendar), drawn last so it wins ──
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+[data-testid="stSidebar"] { background: linear-gradient(160deg, rgba(246,248,253,.92) 0%, rgba(233,238,248,.88) 55%, rgba(240,236,246,.9) 100%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+  border-right: 1px solid rgba(255,255,255,.75) !important; box-shadow: inset -1px 0 0 rgba(10,36,99,.06), 6px 0 28px rgba(10,36,99,.06); }
+div[role="radiogroup"], .stTabs [data-baseweb="tab-list"] { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(236,242,251,.93) 60%, rgba(229,237,249,.9)) !important;
+  border: 1px solid rgba(43,74,138,.14) !important; box-shadow: 0 4px 16px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95) !important; }
+div[role="radiogroup"] label:has(input:checked), .stTabs [aria-selected="true"] { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important;
+  box-shadow: 0 2px 8px rgba(30,58,110,.28), inset 0 1px 0 rgba(255,255,255,.18) !important; }
+div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] { background: #ffffff; border: 1px solid rgba(43,74,138,.12); border-radius: 16px; padding: 6px 8px;
+  box-shadow: 0 6px 22px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95); }
+.dtab, .tbl-wrap { border: 1px solid rgba(43,74,138,.14) !important; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 6px 22px rgba(30,58,110,.07); background: #ffffff !important; }
+.dtab { border-collapse: separate !important; border-spacing: 0; }
+.dtab .sub th { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; color: #ffffff !important; }
+.dtab .g2 { background: #e6edf8 !important; } .dtab .g3 { background: #e8f2f6 !important; }
+.dtab .g1, .dtab .g2, .dtab .g3 { border-color: rgba(43,74,138,.10) !important; }
+.dtab td { border-bottom-color: rgba(43,74,138,.07) !important; }
+.dtab tr:nth-child(even) td:not(.dt):not(.b):not(.avgc):not(.early) { background: #f8fafd; }
+.dtab td.dt { background: #f1f5fb !important; } .dtab td.b { background: #eef3fa !important; }
+.tbl th { background: linear-gradient(180deg, #f3f7fd, #e7eef9) !important; color: #1e3a6e !important; }
+.tbl td { border-bottom-color: rgba(43,74,138,.07) !important; } .tbl td.lbl { background: #f5f8fc !important; border-right-color: rgba(43,74,138,.10) !important; }
+.tbl tr:nth-child(even) td:not(.lbl) { background: #f9fbfe; }
+.grid-head { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(232,239,250,.92)) !important; border: 1px solid rgba(43,74,138,.12);
+  border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
+.card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; letter-spacing: .01em; }
+</style>""", unsafe_allow_html=True)
+
 for _k in KEEP:                                                # remember the values for the next run
     if _k in st.session_state:
         st.session_state[f"_keep_{_k}"] = st.session_state[_k]

@@ -265,10 +265,10 @@ ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.mont
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
 with st.sidebar:
-    st.markdown("<div class='sb-title'>Cecafe</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sb-label'>Section</div>", unsafe_allow_html=True)
-    main = st.radio("Section", ["Daily & Monthly Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
-                    index=1, label_visibility="collapsed", key="main_tab")          # opens on Daily Cecafe
+    st.markdown("<div class='sb-title'>Cecafe</div><div class='sb-tag'>Brazil exports · Daily · Monthly</div>", unsafe_allow_html=True)
+    with st.container(key="sb_nav"):
+        main = st.radio("Section", ["Daily & Monthly Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
+                        index=1, label_visibility="collapsed", key="main_tab")          # opens on Daily Cecafe
 
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
 MONTH_CHOICES = labels[::-1][:12]                              # newest first, last 12 months
@@ -1118,6 +1118,24 @@ div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(4
   border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
 .card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
 div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; letter-spacing: .01em; }
+/* ── Sidebar nav (same as Daily Miner): clean vertical menu, soft navy pick, amber first item ── */
+.sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
+.sb-tag { font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }
+.st-key-sb_nav div[role="radiogroup"] { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
+  display: flex !important; flex-direction: column; gap: 4px; width: 100%; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.st-key-sb_nav div[role="radiogroup"] label { border-radius: 12px !important; padding: 10px 16px !important; width: 100%; transition: background .15s, transform .15s; }
+.st-key-sb_nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p {
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important; font-size: 14.5px !important; font-weight: 600 !important; color: #4a5578 !important; }
+.st-key-sb_nav div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; transform: translateX(2px); }
+.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) { background: linear-gradient(135deg, #2b4a8a, #1e3a6e) !important;
+  box-shadow: 0 6px 16px rgba(30,58,110,.25), inset 0 1px 0 rgba(255,255,255,.18) !important; }
+.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child { margin-bottom: 8px; position: relative; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -7px; height: 1px; background: rgba(43,74,138,.10); }
+.st-key-sb_nav div[role="radiogroup"] label:first-child div[data-testid="stMarkdownContainer"] p { color: #d9701a !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) { background: linear-gradient(135deg, #f0923a, #d9701a) !important;
+  box-shadow: 0 6px 16px rgba(217,112,26,.30), inset 0 1px 0 rgba(255,255,255,.25) !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
 </style>""", unsafe_allow_html=True)
 
 for _k in KEEP:                                                # remember the values for the next run

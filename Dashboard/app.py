@@ -1089,7 +1089,7 @@ elif main == "Daily & Monthly Entry":
 
 # ── ICE glacier theme (same family as Coffee SnD / Commodity Calendar), drawn last so it wins ──
 st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 [data-testid="stSidebar"] { background: linear-gradient(160deg, rgba(246,248,253,.92) 0%, rgba(233,238,248,.88) 55%, rgba(240,236,246,.9) 100%) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
   border-right: 1px solid rgba(255,255,255,.75) !important; box-shadow: inset -1px 0 0 rgba(10,36,99,.06), 6px 0 28px rgba(10,36,99,.06); }
@@ -1118,6 +1118,63 @@ div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(4
   border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
 .card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
 div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; letter-spacing: .01em; }
+/* ── Ice theme completion (matches COT Comprehensive / Futures OI / TDM Comprehensive) ── */
+[data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
+[data-testid="stHeader"] { background: transparent !important; pointer-events: none; }
+[data-testid="stHeader"] button, [data-testid="stHeader"] a, [data-testid="stToolbar"] { pointer-events: auto; }
+html, body, [class*="css"], [data-testid="stAppViewContainer"], .stMarkdown, button, input, textarea {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif !important; -webkit-font-smoothing: antialiased; }
+.page-title, .card-title, .chart-head, .mc-sec, .dx-sec, .mc-hero-t, .dx-hero-t, [data-testid="stWidgetLabel"] p {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; }
+/* dropdowns: glass pill, lift on hover, wine focus ring + caret; frosted menus */
+[data-baseweb="select"] { background: transparent !important; box-shadow: none !important; }
+[data-baseweb="select"] > div { background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(238,242,250,.62)) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(170%); backdrop-filter: blur(14px) saturate(170%);
+  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 999px !important; min-height: 34px;
+  box-shadow: 0 1px 2px rgba(10,36,99,.06), 0 6px 18px rgba(10,36,99,.08), inset 0 1px 0 rgba(255,255,255,.95); transition: box-shadow .18s, transform .18s; }
+[data-baseweb="select"] > div:hover { box-shadow: 0 0 0 3px rgba(10,36,99,.07), 0 8px 22px rgba(10,36,99,.14), inset 0 1px 0 rgba(255,255,255,.95); transform: translateY(-1px); }
+[data-baseweb="select"] > div:focus-within { box-shadow: 0 0 0 3px rgba(123,30,58,.16), 0 8px 22px rgba(10,36,99,.14) !important; }
+[data-baseweb="select"] svg { fill: #7b1e3a !important; }
+.st-key-monthsel [data-baseweb="select"] > div { border: 1px solid rgba(43,74,138,.22) !important; min-height: 40px; }
+[data-baseweb="popover"] [data-baseweb="menu"], [data-baseweb="popover"] ul {
+  background: rgba(255,255,255,.82) !important; -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 14px !important; box-shadow: 0 14px 40px rgba(10,36,99,.18) !important; }
+[data-baseweb="popover"] li:hover { background: rgba(43,74,138,.07) !important; }
+/* vertical option lists inside popovers: a plain menu, not a pill track */
+[data-testid="stPopoverBody"] div[role="radiogroup"] { background: none !important; border: none !important; box-shadow: none !important;
+  border-radius: 0 !important; padding: 0 !important; display: flex !important; flex-direction: column; gap: 2px; width: 100%; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label { width: 100%; border-radius: 8px !important; padding: 5px 10px !important; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) { background: rgba(43,74,138,.09) !important; box-shadow: none !important; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
+/* pill rows lift on hover; charts/cards/buttons/expanders */
+div[role="radiogroup"] label { transition: background .15s, transform .15s; }
+div[role="radiogroup"] label:not(:has(input:checked)):hover { transform: translateY(-1px); }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] { overflow: hidden; transition: box-shadow .2s; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] .main-svg { border-radius: 14px; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"]:hover { box-shadow: 0 1px 2px rgba(10,36,99,.05), 0 10px 26px rgba(30,58,110,.10), inset 0 1px 0 #ffffff; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) { border-radius: 18px !important;
+  border-color: rgba(43,74,138,.10) !important; box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(30,58,110,.06) !important; }
+.st-key-mc_filters, .st-key-dx_filters { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 18px !important;
+  box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 10px 30px rgba(30,58,110,.08), inset 0 1px 0 #ffffff !important; }
+.stButton > button, .stDownloadButton > button { border-radius: 999px !important; transition: box-shadow .18s, transform .18s; }
+.stButton > button:hover, .stDownloadButton > button:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(10,36,99,.12) !important; }
+div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 14px !important; box-shadow: 0 1px 3px rgba(10,36,99,.06); background: #ffffff; }
+/* headings: section heads minimal + centred on a royal-grey wash bar; chart/card titles navy, compact */
+.mc-rule, .dx-rule { border-top: none !important; margin: 18px 0 0 !important; }
+.mc-sec, .dx-sec { display: block; text-align: center; padding: 7px 14px; border-radius: 10px; margin: 6px 0 8px !important;
+  background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.12) 22%, rgba(92,104,136,.12) 78%, rgba(92,104,136,0) 100%);
+  font-size: 12.5px !important; font-weight: 700 !important; letter-spacing: .12em !important; text-transform: uppercase; color: #3b4663 !important; }
+.page-title { font-size: 1.15rem !important; letter-spacing: -.01em; }
+.card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
+.card-desc { color: #7a86a8 !important; font-size: 12px !important; }
+.pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
+/* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */
+.dtab .sub th { background: linear-gradient(180deg, #f7f9fd, #e8eef9) !important; color: #1e3a6e !important; font-weight: 700 !important;
+  font-size: .92em; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid rgba(43,74,138,.18) !important; padding-top: 5px; padding-bottom: 5px; }
+.dtab td.dt { color: #1e3a6e; font-weight: 600; }
+.dtab tbody tr:hover td, .tbl tbody tr:hover td { background-color: rgba(43,74,138,.06) !important; }
+.tbl-wrap, .dtab { box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(10,36,99,.06) !important; }
+.tbl th { font-weight: 700 !important; letter-spacing: .06em; text-transform: uppercase; font-size: .9em; border-bottom: 1px solid rgba(43,74,138,.18) !important; }
 /* ── Sidebar nav (same as Daily Miner): clean vertical menu, soft navy pick, amber first item ── */
 .sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
 .sb-tag { font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }

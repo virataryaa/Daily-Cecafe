@@ -531,7 +531,7 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=[0.5, dim + 0.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
                                      name=f"{len(per_day)}y avg/day", hovertemplate="%{y:,.0f}",
                                      line=dict(color="#4a5578", width=1.5, dash="dot")))
-        chart_layout(fig, height=480)
+        chart_layout(fig, height=440)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
         # two stacked panels on one day axis: cumulative on top, Adj daily as a mini bar chart below
@@ -582,7 +582,7 @@ def render_visuals():
             fig.add_trace(go.Scatter(x=[0.5, 31.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
                                      name=f"{len(per_day)}m avg/day", hovertemplate="%{y:,.0f}",
                                      line=dict(color="#4a5578", width=1.5, dash="dot")))
-        chart_layout(fig, height=480)
+        chart_layout(fig, height=440)
         ymax = max([float(pd.Series(tr.y).max()) for tr in fig.data if tr.yaxis != "y2" and len(tr.y)] or [1.0])
         fig.update_layout(
             yaxis=dict(domain=[0.3, 1], range=[0, ymax * 1.05]),
@@ -597,7 +597,7 @@ def render_visuals():
     def _chart_cols():
         """One column per commodity, ~10% narrower than half the page: thin outer margins and a wider
         middle gap, so the four charts fit one screen without looking cramped."""
-        w = [0.05] + sum(([1, 0.1] for _ in COMMS), [])[:-1] + [0.05]
+        w = [0.08] + sum(([1, 0.14] for _ in COMMS), [])[:-1] + [0.08]
         return st.columns(w)[1::2]
 
     # row 1: same month across years, Arabica | Robusta
@@ -1174,8 +1174,8 @@ div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important
 .card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
 .card-desc { color: #7a86a8 !important; font-size: 12px !important; }
 /* chart titles: centred, elegant small caps-lock with wide tracking; their note centred under them */
-.chart-head { text-align: center; text-transform: uppercase; font-size: 12px !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px auto 3px !important; width: 72%;
-  padding: 3px 12px; border-radius: 8px; background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%); }
+.chart-head { text-align: center; text-transform: uppercase; font-size: 12px !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px 0 4px !important;
+  padding: 4px 12px; border-radius: 8px; background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%); }
 .chart-head + .card-desc { text-align: center; margin-top: 0 !important; }
 .pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
 /* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */

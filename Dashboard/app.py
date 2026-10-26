@@ -1174,8 +1174,8 @@ div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important
 .card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
 .card-desc { color: #7a86a8 !important; font-size: 12px !important; }
 /* chart titles: centred, elegant small caps-lock with wide tracking; their note centred under them */
-.chart-head { text-align: center; text-transform: uppercase; font-size: 12px !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px 0 4px !important;
-  padding: 4px 12px; border-radius: 8px; background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%); }
+.chart-head { text-align: center; text-transform: uppercase; font-size: 12px !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px auto 3px !important; width: 72%;
+  padding: 3px 12px; border-radius: 8px; background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%); }
 .chart-head + .card-desc { text-align: center; margin-top: 0 !important; }
 .pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
 /* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */

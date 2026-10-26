@@ -1173,6 +1173,9 @@ div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important
 .page-title { font-size: 1.15rem !important; letter-spacing: -.01em; }
 .card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
 .card-desc { color: #7a86a8 !important; font-size: 12px !important; }
+/* chart titles: centred, elegant small caps-lock with wide tracking; their note centred under them */
+.chart-head { text-align: center; text-transform: uppercase; font-size: 12px !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px 0 2px !important; }
+.chart-head + .card-desc { text-align: center; margin-top: 0 !important; }
 .pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
 /* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */
 .dtab .sub th { background: linear-gradient(180deg, #f7f9fd, #e8eef9) !important; color: #1e3a6e !important; font-weight: 700 !important;

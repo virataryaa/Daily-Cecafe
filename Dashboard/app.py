@@ -793,43 +793,93 @@ def render_dispatched():
                          "All months, cumulative. Blank = not published that day.")
 
 
+def _bags(v: float) -> str:
+    return f"{v / 1e6:.2f}M" if abs(v) >= 1e6 else f"{v / 1e3:,.0f}k"
+
+
+def _lean(bias: float) -> str:
+    """Plain-words direction of the typical miss."""
+    if bias > 1:
+        return f"runs a bit high (+{bias:.0f}%)"
+    if bias < -1:
+        return f"runs a bit low ({bias:.0f}%)"
+    return "has no clear lean"
+
+
 def render_accuracy():
+    """How far to trust the linear month-end projection, in plain words: every past complete month is replayed
+    day by day (only numbers known that day) and the projection compared with how the month really ended.
+    'within' = the band 8 of 10 past months fell inside (80th pct of |miss|); 'lean' = median signed miss."""
     scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
                      label_visibility="collapsed", key="acc_scope")
-    st.markdown("<div class='card-desc'>Linear projection vs actual month-end, by day. "
-                "Uses only data known that day.</div>", unsafe_allow_html=True)
-    ac = st.columns(2)
+    st.markdown("<style>"
+                ".acc-card{background:#ffffff;border:1px solid rgba(43,74,138,.10);border-radius:16px;padding:14px 18px;margin:4px 0 10px;"
+                "text-align:center;box-shadow:0 1px 2px rgba(10,36,99,.04),0 8px 24px rgba(30,58,110,.06)}"
+                ".acc-l{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#7a86a8}"
+                ".acc-v{font-size:26px;font-weight:700;color:#0a2463;line-height:1.2;margin:2px 0 6px;font-variant-numeric:tabular-nums}"
+                ".acc-r{font-size:15px;color:#1e3a6e;font-weight:600;font-variant-numeric:tabular-nums}"
+                ".acc-n{font-size:12px;color:#7a86a8;margin-top:6px}"
+                "</style>", unsafe_allow_html=True)
+    ac = st.columns(2, gap="large")
     for col_, comm in zip(ac, COMMS):
         a = accuracy_table(df, comm)
         if scope != "All months" and not a.empty:
             a = a[a.month == sel_m]
         with col_:
+            st.markdown(f"<div class='chart-head'>{comm}</div>", unsafe_allow_html=True)
             if a.empty:
                 st.info(f"{comm}: no complete months to test.")
                 continue
-            g = a.groupby("day")["err"].agg(miss=lambda v: v.abs().median(), bias="median",
+            g = a.groupby("day")["err"].agg(within=lambda v: v.abs().quantile(0.8), lean="median",
                                             lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9))
             n_months = a[["year", "month"]].drop_duplicates().shape[0]
-            st.markdown(f"<div class='chart-head'>{comm}: miss % by day</div>"
-                        f"<div class='card-desc'>{n_months} months. + = projection too high.</div>",
-                        unsafe_allow_html=True)
+
+            # 1. Today's projection -> likely month-end range
+            pr = project(month_series(df[comm], sel_y, sel_m), sel_y, sel_m)
+            today = None
+            if pr and pr[0] in g.index:
+                today, _, proj, _ = pr
+                r = g.loc[today]
+                lo_v, hi_v = proj / (1 + r.hi / 100), proj / (1 + r.lo / 100)
+                st.markdown(
+                    f"<div class='acc-card'><div class='acc-l'>{MON} projection &middot; day {today}</div>"
+                    f"<div class='acc-v'>{_bags(proj)} bags</div>"
+                    f"<div class='acc-r'>Likely month-end: {_bags(lo_v)} &ndash; {_bags(hi_v)}</div>"
+                    f"<div class='acc-n'>8 of 10 past months ended in this range &middot; on day {today} the projection "
+                    f"{_lean(r.lean)}</div></div>", unsafe_allow_html=True)
+
+            # 2. How close the projection gets as the month goes on
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=g.index, y=g.hi, line=dict(width=0), showlegend=False, hoverinfo="skip"))
-            fig.add_trace(go.Scatter(x=g.index, y=g.lo, line=dict(width=0), fill="tonexty",
-                                     fillcolor="rgba(31,138,156,0.16)", name="80% of months"))
-            fig.add_trace(go.Scatter(x=g.index, y=g.bias, name="Typical miss", mode="lines+markers",
-                                     line=dict(color=NAVY, width=3), marker=dict(size=6)))
-            fig.add_hline(y=0, line=dict(color=GREY, width=1))
-            chart_layout(fig, height=360, yaxis=dict(ticksuffix="%", tickformat=".0f", hoverformat=".1f"))
+            fig.add_trace(go.Scatter(x=g.index, y=g.within, mode="lines", name="8 in 10 months within",
+                                     line=dict(color=NAVY, width=3), fill="tozeroy", fillcolor="rgba(43,74,138,0.10)",
+                                     hovertemplate="Day %{x}: within ±%{y:.0f}%<extra></extra>"))
+            if today:
+                fig.add_vline(x=today, line=dict(color="#7b1e3a", width=1.5, dash="dot"),
+                              annotation_text="today", annotation_position="top",
+                              annotation_font=dict(size=11, color="#7b1e3a"))
+            chart_layout(fig, height=300, showlegend=False,
+                         xaxis=dict(title=dict(text="Day of month", font=dict(size=11, color="#7a86a8"))),
+                         yaxis=dict(tickprefix="±", ticksuffix="%", tickformat=".0f",
+                                    range=[0, min(float(g.within.max()) * 1.05, 40)],
+                                    title=dict(text="Projection off by", font=dict(size=11, color="#7a86a8"))))
+            st.markdown("<div class='card-desc' style='text-align:center'>How far off the projection usually is, "
+                        "by day of month. Lower = more reliable.</div>", unsafe_allow_html=True)
             st.plotly_chart(fig, width="stretch")
+
+            # 3. Quick lookup
             body_ = ""
             for d_ in (5, 10, 15, 20, 25):
                 if d_ in g.index:
                     r = g.loc[d_]
-                    body_ += (f"<tr><td class='dt'>Day {d_}</td><td class='b'>{r.miss:.1f}%</td><td>{r.bias:+.1f}%</td>"
-                              f"<td>{r.lo:+.0f}% to {r.hi:+.0f}%</td></tr>")
-            st.markdown("<table class='dtab'><tr class='sub'><th>As of</th><th>Avg miss</th><th>Bias</th>"
-                        "<th>80% range</th></tr>" + body_ + "</table>", unsafe_allow_html=True)
+                    lean = "high" if r.lean > 1 else "low" if r.lean < -1 else "&ndash;"
+                    lean = lean if lean == "&ndash;" else f"{lean} ({r.lean:+.0f}%)"
+                    body_ += (f"<tr><td class='dt'>Day {d_}</td><td class='b'>&plusmn;{r.within:.0f}%</td>"
+                              f"<td>{lean}</td></tr>")
+            st.markdown("<div style='display:flex;justify-content:center'><table class='dtab dtab-lg'>"
+                        "<tr class='sub'><th>On day</th><th>8 in 10 within</th><th>Tends to run</th></tr>"
+                        + body_ + "</table></div>"
+                        f"<div class='card-desc' style='text-align:center;margin-top:6px'>Based on {n_months} past months.</div>",
+                        unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------------------------
 # TAB: ENTRY - writes a row to the CSV in GitHub
@@ -1062,14 +1112,7 @@ if main == "Daily Cecafe":
         render_dispatched()
     else:
         render_accuracy()
-        st.markdown(
-            "<div class='card-desc' style='margin-top:14px; line-height:1.6'><b>How this is made.</b> "
-            "For every past month that is complete, we take the linear projection as it stood on each day "
-            "(registered so far &divide; day number &times; days in the month) and compare it with that month's real "
-            "final total. Miss % = projection &divide; actual &minus; 1. Only numbers known on that day are used. "
-            "The dark line is the typical (median) miss for that day across all months; the shaded band holds the "
-            "middle 80% of months. In the table, <i>Avg miss</i> is the typical size of the error and <i>Bias</i> is its "
-            "direction (+ means the projection was too high).</div>", unsafe_allow_html=True)
+        st.markdown("<div class='card-desc' style='margin-top:14px;text-align:center'>How it works: we replayed every past month day by day and compared the projection (bags so far &divide; days gone &times; days in month) with how the month really ended.</div>", unsafe_allow_html=True)
 elif main == "Monthly Cecafe":
     import monthly
     monthly.render()

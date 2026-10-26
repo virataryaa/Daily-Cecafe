@@ -594,15 +594,21 @@ def render_visuals():
         )
         return bottom_legend(fig)
 
+    def _chart_cols():
+        """One column per commodity, ~10% narrower than half the page: thin outer margins and a wider
+        middle gap, so the four charts fit one screen without looking cramped."""
+        w = [0.05] + sum(([1, 0.1] for _ in COMMS), [])[:-1] + [0.05]
+        return st.columns(w)[1::2]
+
     # row 1: same month across years, Arabica | Robusta
-    for col_, comm in zip(st.columns(len(COMMS)), COMMS):
+    for col_, comm in zip(_chart_cols(), COMMS):
         with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>"
                         "<div class='card-desc'>Bands = last 5 years. Bars = Adj daily, dotted = 5y avg/day.</div>",
                         unsafe_allow_html=True)
             st.plotly_chart(same_month_fig(comm), width="stretch")
     # row 2: last 4 months, Arabica | Robusta
-    for col_, comm in zip(st.columns(len(COMMS)), COMMS):
+    for col_, comm in zip(_chart_cols(), COMMS):
         with col_:
             st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>"
                         "<div class='card-desc'>Bars = Adj daily, this vs previous month; dotted = avg/day of the 5 months before.</div>",

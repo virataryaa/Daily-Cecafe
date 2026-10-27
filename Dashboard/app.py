@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.io as pio
+# Plus Jakarta Sans on every chart, including ones that never set a font
+for _t in ("plotly", "plotly_white"):
+    pio.templates[_t].layout.font.family = "Plus Jakarta Sans, sans-serif"
 import requests
 import streamlit as st
 
@@ -93,7 +97,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .grid-head { color: #0a2463; font-weight: 600; font-size: 0.85rem; padding: 3px 8px; background: #e6e9f2; border-radius: 6px 6px 0 0; margin-bottom: 2px; display: inline-block; }
 
 /* Sidebar title + small stats */
-.sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.5rem; font-weight: 600; color: #0a2463; margin-bottom: 2px; }
+.sb-title { font-family: Plus Jakarta Sans, sans-serif; font-size: 1.5rem; font-weight: 600; color: #0a2463; margin-bottom: 2px; }
 .sb-caption { font-size: 11px; color: #7a86a8; margin-bottom: 16px; line-height: 1.4; }
 .filter-stat { font-size: 12px; color: #5a6688 !important; line-height: 1.7; margin-bottom: 14px; }
 .filter-stat b { color: #0a2463 !important; font-size: 13px; }
@@ -1138,7 +1142,7 @@ elif main == "Daily & Monthly Entry":
 
 # ── ICE glacier theme (same family as Coffee SnD / Commodity Calendar), drawn last so it wins ──
 st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 [data-testid="stSidebar"] { background: linear-gradient(160deg, rgba(246,248,253,.92) 0%, rgba(233,238,248,.88) 55%, rgba(240,236,246,.9) 100%) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
   border-right: 1px solid rgba(255,255,255,.75) !important; box-shadow: inset -1px 0 0 rgba(10,36,99,.06), 6px 0 28px rgba(10,36,99,.06); }
@@ -1166,15 +1170,15 @@ div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(4
 .grid-head { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(232,239,250,.92)) !important; border: 1px solid rgba(43,74,138,.12);
   border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
 .card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; letter-spacing: .01em; }
+div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: Plus Jakarta Sans, sans-serif !important; letter-spacing: .01em; }
 /* ── Ice theme completion (matches COT Comprehensive / Futures OI / TDM Comprehensive) ── */
 [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
 [data-testid="stHeader"] { background: transparent !important; pointer-events: none; }
 [data-testid="stHeader"] button, [data-testid="stHeader"] a, [data-testid="stToolbar"] { pointer-events: auto; }
 html, body, [class*="css"], [data-testid="stAppViewContainer"], .stMarkdown, button, input, textarea {
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif !important; -webkit-font-smoothing: antialiased; }
+  font-family: Plus Jakarta Sans, sans-serif !important; -webkit-font-smoothing: antialiased; }
 .page-title, .card-title, .chart-head, .mc-sec, .dx-sec, .mc-hero-t, .dx-hero-t, [data-testid="stWidgetLabel"] p {
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif !important; }
+  font-family: Plus Jakarta Sans, sans-serif !important; }
 /* dropdowns: glass pill, lift on hover, wine focus ring + caret; frosted menus */
 [data-baseweb="select"] { background: transparent !important; box-shadow: none !important; }
 [data-baseweb="select"] > div { background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(238,242,250,.62)) !important;
@@ -1233,13 +1237,13 @@ div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important
 .tbl-wrap, .dtab { box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(10,36,99,.06) !important; }
 .tbl th { font-weight: 700 !important; letter-spacing: .06em; text-transform: uppercase; font-size: .9em; border-bottom: 1px solid rgba(43,74,138,.18) !important; }
 /* ── Sidebar nav (same as Daily Miner): clean vertical menu, soft navy pick, amber first item ── */
-.sb-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
-.sb-tag { font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }
+.sb-title { font-family: Plus Jakarta Sans, sans-serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
+.sb-tag { font-family: Plus Jakarta Sans, sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }
 .st-key-sb_nav div[role="radiogroup"] { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
   display: flex !important; flex-direction: column; gap: 4px; width: 100%; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 .st-key-sb_nav div[role="radiogroup"] label { border-radius: 12px !important; padding: 10px 16px !important; width: 100%; transition: background .15s, transform .15s; }
 .st-key-sb_nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p {
-  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif !important; font-size: 14.5px !important; font-weight: 600 !important; color: #4a5578 !important; }
+  font-family: Plus Jakarta Sans, sans-serif !important; font-size: 14.5px !important; font-weight: 600 !important; color: #4a5578 !important; }
 .st-key-sb_nav div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; transform: translateX(2px); }
 .st-key-sb_nav div[role="radiogroup"] label:has(input:checked) { background: linear-gradient(135deg, #2b4a8a, #1e3a6e) !important;
   box-shadow: 0 6px 16px rgba(30,58,110,.25), inset 0 1px 0 rgba(255,255,255,.18) !important; }

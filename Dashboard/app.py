@@ -75,11 +75,11 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
     box-shadow: 0 1px 3px rgba(10,36,99,0.06); }
 /* Section selector in the sidebar: large stacked pills, as in Daily Miner */
 [data-testid="stSidebarUserContent"] { padding-top: 1rem !important; }
-[data-testid="stSidebar"] div[role="radiogroup"] { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: 22px; padding: 5px; gap: 3px; }
-[data-testid="stSidebar"] div[role="radiogroup"] label { padding: 8px 18px !important; }
-[data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 15px !important; }
+.st-key-sb_nav div[role="radiogroup"] { display: flex; flex-direction: column; align-items: stretch; width: 100%; border-radius: 22px; padding: 5px; gap: 3px; }
+.st-key-sb_nav div[role="radiogroup"] label { padding: 8px 18px !important; }
+.st-key-sb_nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { font-size: 15px !important; }
 /* Daily & Monthly Entry (first sidebar pill) and its sub-tabs: dark orange when selected */
-[data-testid="stSidebar"] div[role="radiogroup"] label:first-of-type:has(input:checked),
+.st-key-sb_nav div[role="radiogroup"] label:first-of-type:has(input:checked),
 .st-key-entry_nav div[role="radiogroup"] label:has(input:checked) { background: #c2410c !important; }
 .sb-label { font-size: 11px; color: #7a86a8; text-transform: uppercase; letter-spacing: .06em; margin: 6px 0 4px; }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
@@ -214,15 +214,18 @@ def miss_band(data: pd.DataFrame, comm: str, year: int, month: int) -> pd.DataFr
         a = a[a.month == month]
     if a.empty:
         return pd.DataFrame(columns=["lo", "hi"])
-    return a.groupby("day")["err"].agg(lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9))
+    return a.groupby("day")["err"].agg(lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9),
+                                       q1=lambda v: v.quantile(0.25), q3=lambda v: v.quantile(0.75))
 
 
-def likely_range(comm, day, proj):
+def likely_range(comm, day, proj, inner=False):
     """(low, high) month-end for a projection made on `day`; 8 of 10 past months ended inside it."""
     b = miss_band(df, comm, sel_y, sel_m)
     if proj is None or day < RANGE_FROM or day not in b.index:
         return None
     r = b.loc[day]
+    if inner:                                                     # middle 50% of past months
+        return proj / (1 + r.q3 / 100), proj / (1 + r.q1 / 100)
     return proj / (1 + r.hi / 100), proj / (1 + r.lo / 100)
 
 
@@ -247,6 +250,13 @@ def band_fig(comm):
                              line=dict(width=1, color="rgba(43,74,138,.25)", shape="spline"), name="80% range",
                              customdata=[[mm(l_), mm(h_)] for l_, h_ in zip(lo, hi)],
                              hovertemplate="Range %{customdata[0]} – %{customdata[1]}<extra></extra>"))
+    inn = [likely_range(comm, d, p, inner=True) for d, p, _ in pts]
+    fig.add_trace(go.Scatter(x=x, y=[r[1] for r in inn], mode="lines", line=dict(width=0, shape="spline"),
+                             showlegend=False, hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=x, y=[r[0] for r in inn], mode="lines", fill="tonexty", fillcolor="rgba(43,74,138,0.20)",
+                             line=dict(width=0, shape="spline"), name="50% range",
+                             customdata=[[mm(r[0]), mm(r[1])] for r in inn],
+                             hovertemplate="50% %{customdata[0]} – %{customdata[1]}<extra></extra>"))
     fig.add_trace(go.Scatter(x=x, y=pr, mode="lines", name="Linear month-end",
                              line=dict(color=NAVY, width=2.6, shape="spline"),
                              hovertemplate="Projection %{y:,.0f}<extra></extra>"))
@@ -274,6 +284,134 @@ def now_callout(fig, x, y):
                        arrowcolor="rgba(10,36,99,0.45)", ax=-34, ay=-26, bgcolor="rgba(255,255,255,0.92)",
                        bordercolor="rgba(10,36,99,0.25)", borderwidth=1, borderpad=3,
                        font=dict(size=10, color=NAVY))
+
+
+@st.cache_data(ttl=600)
+def daily_flow(data: pd.DataFrame) -> pd.DataFrame:
+    """Calendar-day registrations per type (bags/day), stitched month by month from the cumulative MTD prints:
+    each month's Adj daily (a jump after skipped days split equally across them, falls clipped to 0).
+    Days after a month's last print are only known once the month closes, so a closed month's tail is filled
+    from its final print; the running month stops at its latest print. Total = Arabica + Robusta."""
+    out = {}
+    last = data.dropna(how="all").index.max()
+    for c in ALL:
+        s_ = data[c].dropna()
+        parts = []
+        for y, m in sorted({(d.year, d.month) for d in s_.index}):
+            ms = month_series(s_, y, m)
+            ad = adjusted_daily(ms)
+            dim = month_dim(y, m)
+            closed = (y, m) < (last.year, last.month)
+            if closed and ad.index.max() < dim:                     # tail days of a closed month: spread nothing new
+                ad = ad.reindex(range(1, dim + 1)).fillna(0.0)
+            ad.index = [pd.Timestamp(y, m, d) for d in ad.index]
+            parts.append(ad)
+        if parts:
+            out[c] = pd.concat(parts)
+    flow = pd.DataFrame(out).sort_index()
+    flow = flow.reindex(pd.date_range(flow.index.min(), flow.index.max()))
+    # start after the last calendar month where Arabica or Robusta has no print at all (2020 had a 5-month hole);
+    # from there the record is continuous, so nothing has to be invented
+    prints = data[COMMS].notna().groupby(data.index.to_period("M")).sum()
+    prints = prints.reindex(pd.period_range(prints.index.min(), prints.index.max(), freq="M"), fill_value=0)
+    holes = prints[(prints == 0).any(axis=1)].index
+    if len(holes):
+        flow = flow.loc[(holes.max() + 1).to_timestamp():]
+    flow["Total"] = flow[[c for c in COMMS if c in flow]].sum(axis=1, min_count=len(COMMS))  # Arabica + Robusta
+    return flow
+
+
+FLOW_H = 420
+
+
+def roll_flow(ser: pd.Series, n: int, how: str) -> pd.Series:
+    r = ser.rolling(n, min_periods=max(1, n // 2))
+    return r.mean() if how == "Average" else r.sum()
+
+
+def flow_fig(r: pd.Series, unit: str, height=FLOW_H):
+    fig = go.Figure(go.Scatter(x=r.index, y=r.values, mode="lines", line=dict(color=NAVY, width=1.8),
+                               showlegend=False, hovertemplate="%{y:,.0f}"))
+    last = r.dropna()
+    if not last.empty:
+        fig.add_annotation(x=last.index[-1], y=float(last.iloc[-1]), text=f"<b>{mm(float(last.iloc[-1]))}</b>{unit}",
+                           showarrow=False, xanchor="left", xshift=8, font=dict(size=10.5, color=NAVY))
+    chart_layout(fig, height=height, xaxis=dict(range=None, dtick=None, tickformat="%b<br>%Y", nticks=10),
+                 yaxis=dict(tickformat=".2s", rangemode="tozero"))
+    fig.update_layout(margin=dict(t=20, b=10, l=10, r=80))
+    return fig
+
+
+def render_flow():
+    with st.sidebar.container(key="side_flow"):
+        st.markdown("<div class='ms-lbl'>Chart options</div>", unsafe_allow_html=True)
+        n = int(st.number_input("Rolling window (days)", min_value=1, max_value=120, value=30, step=1, key="flow_n"))
+        how = st.radio("Show", ["Average", "Sum"], horizontal=True, key="flow_how")
+        span = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "5Y", "All"], index=5, key="flow_span")
+    flow = daily_flow(df)
+    if flow.empty:
+        st.info("Nothing to show.")
+        return
+    end = flow.dropna(how="all").index.max()
+    if span in ("3M", "6M"):
+        start = end - pd.DateOffset(months=int(span[0]))
+    else:                                                         # year spans start on 1 Jan: 2Y = Jan last year
+        yrs = {"1Y": 1, "2Y": 2, "5Y": 5, "All": 10}[span]
+        start = pd.Timestamp(end.year - yrs + 1, 1, 1)
+    start = max(flow.index.min(), start)
+    lab = f"{n}d {'avg' if how == 'Average' else 'sum'}" if n > 1 else "daily"
+    unit = "/day" if how == "Average" or n == 1 else f" / {n}d"
+    for c in ["Total", *COMMS]:                                       # one row per type: history | seasonality
+        full = flow[c]
+        if full.dropna().empty:
+            continue
+        r = roll_flow(full, n, how)
+        left, right = st.columns([1.15, 1], gap="medium")
+        with left:
+            st.markdown(f"<div class='chart-head'>{c} · bags · {lab}</div>", unsafe_allow_html=True)
+            fig = flow_fig(r.loc[start:end], unit)
+            fig.update_xaxes(range=[start, end + pd.Timedelta(days=2)])
+            st.plotly_chart(fig, width="stretch", key=f"flow_{c}")
+        with right:
+            st.markdown(f"<div class='chart-head'>{c} · seasonality · {lab}</div>", unsafe_allow_html=True)
+            st.plotly_chart(flow_season_fig(r.loc[start:end], end.year), width="stretch", key=f"flow_s_{c}")
+
+
+def flow_season_fig(r: pd.Series, cur_year: int, height=FLOW_H):
+    """Calendar-year seasonality of the rolled daily flow: every past year as a thin line, their average dashed navy,
+    the current year on top (wine). Days plotted on a common leap year so Feb 29 lines up."""
+    r = r.dropna()
+    yrs = sorted(set(r.index.year))
+    past = [y for y in yrs if y != cur_year][-10:]
+    def on_axis(y):
+        s_ = r[r.index.year == y]
+        return pd.Series(s_.values, index=[pd.Timestamp(2000, d.month, d.day) for d in s_.index])
+    axis = pd.date_range("2000-01-01", "2000-12-31")
+    fig = go.Figure()
+    if past:                                                      # every past year as its own thin line
+        pal = ["#9aa6c4", "#c9a54a", "#7fb8a4", "#c98fa0", "#8fb3d9", "#b49ad1", "#d9a07a", "#a3b86b", "#7a8aa8", "#d1b06b"]
+        for i, y in enumerate(past):
+            h = on_axis(y)
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, mode="lines", name=str(y),
+                                     line=dict(color=pal[i % len(pal)], width=1.1), opacity=0.75,
+                                     hovertemplate="%{y:,.0f}"))
+    if len(past) >= 2:                                            # average drawn over the years so it stays visible
+        bd = pd.DataFrame({y: on_axis(y).reindex(axis) for y in past})
+        avg = bd.mean(axis=1).where(bd.count(axis=1) >= 2)
+        fig.add_trace(go.Scatter(x=avg.index, y=avg.values, mode="lines", name=f"Average {past[0]}-{past[-1]}",
+                                 line=dict(color=NAVY, width=2.6, dash="dash"), hovertemplate="%{y:,.0f}"))
+    cur = on_axis(cur_year)
+    if not cur.empty:
+        fig.add_trace(go.Scatter(x=cur.index, y=cur.values, mode="lines", name=str(cur_year),
+                                 line=dict(color="#7b1e3a", width=2.4), hovertemplate="%{y:,.0f}"))
+        fig.add_annotation(x=cur.index[-1], y=float(cur.iloc[-1]), text=f"<b>{mm(float(cur.iloc[-1]))}</b>",
+                           showarrow=False, xanchor="left", xshift=6, font=dict(size=10.5, color="#7b1e3a"))
+    chart_layout(fig, height=height, xaxis=dict(range=[axis[0], axis[-1]], dtick="M1", tickformat="%b"),
+                 yaxis=dict(tickformat=".2s", rangemode="tozero"))
+    fig.update_layout(legend=dict(orientation="h", x=0, y=1.0, xanchor="left", yanchor="bottom",
+                                  font=dict(size=11, color="#5a6688"), bgcolor="rgba(0,0,0,0)"),
+                      margin=dict(t=34, b=10, l=10, r=50), xaxis_hoverformat="%d %b")
+    return fig
 
 
 def render_band_charts():
@@ -1483,7 +1621,8 @@ if main == "Daily Cecafe":
     # one row: pill tabs on the left (a radio, so only the open page is computed), month dropdown on the right
     nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
     with nav_l, st.container(key="nav"):
-        page = st.radio("Page", ["Daily Cecafe Projection", "Registrations", "Dispatched", "Advanced Study"], horizontal=True,
+        page = st.radio("Page", ["Daily Cecafe Projection", "Registrations", "Daily Flow", "Dispatched", "Advanced Study"],
+                        horizontal=True,
                         label_visibility="collapsed", key="page")
     sidebar_month()
     if page == "Daily Cecafe Projection":
@@ -1499,6 +1638,8 @@ if main == "Daily Cecafe":
         render_visuals()
         min_year = first_year                                                              # tables: every year
         render_history_tables()
+    elif page == "Daily Flow":
+        render_flow()
     elif page == "Dispatched":
         render_dispatched()
     else:

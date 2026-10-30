@@ -264,8 +264,9 @@ if st.session_state.get("page") == "Entry":
     st.session_state["page"] = "Registrations"
 
 TODAY = pd.Timestamp.today()
-# months with data, plus the running calendar month so its first day can be entered
-ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month)})
+# months with data, plus the running and next calendar month so their first days can be entered early
+NEXT = TODAY + pd.DateOffset(months=1)
+ym_all = sorted({(d.year, d.month) for d in df.index} | {(TODAY.year, TODAY.month), (NEXT.year, NEXT.month)})
 labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 
 with st.sidebar:
@@ -277,7 +278,7 @@ with st.sidebar:
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
 MONTH_CHOICES = labels[::-1][:12]                              # newest first, last 12 months
 if st.session_state.get("month_sel") not in MONTH_CHOICES:
-    st.session_state["month_sel"] = MONTH_CHOICES[0]
+    st.session_state["month_sel"] = f"{MONTHS[TODAY.month - 1]} {TODAY.year}"   # default: running month, not next
 sel = st.session_state["month_sel"]
 sel_y, sel_m = ym_all[labels.index(sel)]
 MON = f"{MONTHS[sel_m - 1]}'{str(sel_y)[2:]}"

@@ -34,9 +34,10 @@ PROJ_METHODS = ["Off", "YoY %", "Seasonal share", "Monthly value", "Full-year ta
 
 # ── Palette (same as the Daily pages) ─────────────────────────────────────────
 NAVY, TEAL, GREEN, RED, AMBER, GREY = "#0a2463", "#1f8a9c", "#1f9d6f", "#c94a4a", "#c98a1f", "#8a94a8"
+SLATE = "#2b4a8a"                                                  # band fill: pale navy tints
 INK, AXIS, GRID = "#1a1a2e", "#4a5578", "rgba(10,36,99,0.08)"
 OLDER = [TEAL, AMBER, GREEN, "#6b7fb8", GREY, "#8fc7d0", "#e2c38a", "#9fd1bb", "#b9c3de"]
-SEQ = ["#ffffff", "#f2f9f5", "#e3f3ea", "#cfeadc", "#b6dec9", "#99cfb3", "#7bbf9c"]   # soft greens
+SEQ = ["#ffffff", "#f5f7fc", "#eaeef8", "#dde4f3", "#ccd6ee", "#b8c6e6", "#a2b4dd"]   # soft navy tints
 DIV = ["#c94a4a", "#dc8585", "#edbcbc", "#f7e2e2", "#ffffff", "#e2f3eb", "#aee0c9", "#52b28a", "#1f7d5b"]
 
 CSS = """
@@ -83,9 +84,10 @@ CSS = """
 .tbl-head { text-align: center; margin-top: 4px; }
 .tbl td.x { font-weight: 700; }
 /* 1 + 7. Navy header bar: the title div itself is the bar, so it always wraps the text */
-.mc-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3;
-    background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 16px 22px; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+.mc-hero-t { color: #0a2463; font-size: 17px; font-weight: 600; letter-spacing: .22em; line-height: 1.3;
+    text-transform: uppercase; text-align: center; padding: 2px 0 0; margin: 2px 0 12px; }
+.mc-hero-t::after { content: ""; display: block; width: 56px; height: 1px; margin: 9px auto 0;
+    background: linear-gradient(90deg, transparent, #0a2463, transparent); }
 .st-key-mc_hero [data-testid="stVerticalBlock"]:has(> .st-key-mc_page) { align-items: flex-end; }
 .st-key-mc_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
 .st-key-mc_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
@@ -175,9 +177,7 @@ def chart_head(title, desc, control):
     """Title with its toggle on the same line (right), description underneath at full width."""
     h, w = st.columns([1, 1], vertical_alignment="center")
     h.markdown(f"<div class='chart-head'>{title}</div>", unsafe_allow_html=True)
-    out = control(w)
-    st.markdown(f"<div class='card-desc'>{desc}</div>", unsafe_allow_html=True)
-    return out
+    return control(w)
 
 
 def section(label=""):
@@ -188,7 +188,7 @@ def section(label=""):
 def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0f", short=False, **extra):
     xaxis = dict(gridcolor=GRID, color=AXIS, showgrid=False)
     if months:
-        xaxis.update(categoryorder="array", categoryarray=months)
+        xaxis.update(categoryorder="array", categoryarray=months, range=[-0.3, len(months) - 0.7])  # air at both ends
     xaxis.update(extra.pop("xaxis", {}))
     yaxis = dict(gridcolor=GRID, color=AXIS, hoverformat=fmt, tickformat="~s" if short else fmt,
                  separatethousands=True)                           # short: 38M on the axis, full value on hover
@@ -209,7 +209,7 @@ def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0
 
 def show(fig, key):
     return st.plotly_chart(fig, width="stretch", key=key,
-                           config={"displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d"]})
+                           config={"displaylogo": False, "displayModeBar": False})
 
 
 def seed(key, value):
@@ -485,7 +485,7 @@ def _charts(ctx, proj):
                                              key=f"{k}_cumview", label_visibility="collapsed"))
         fig = go.Figure()
         if len(ref) >= 2:
-            _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt)
+            _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt, shade=False)
         cum_years = years[-4:] if cview == "Last 4" else years
         older = [y for y in cum_years if y not in (latest_cy, prev_cy)]
         for y in cum_years:
@@ -525,8 +525,8 @@ def _charts(ctx, proj):
         floor = float(roll.min()) - 0.05 * float(roll.max() - roll.min())     # shade to just under the low, not to 0
         fig = go.Figure(go.Scatter(x=roll.index, y=[floor] * len(roll), mode="lines", line=dict(width=0),
                                    showlegend=False, hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
-                                 fill="tonexty", fillcolor=rgba(TEAL, 0.08), name="Combined" if parts else "Rolling",
+        fig.add_trace(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=SLATE, width=2),
+                                 fill="tonexty", fillcolor=rgba(SLATE, 0.07), name="Combined" if parts else "Rolling",
                                  hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
         pal = {"Arabica": NAVY, "Robusta": AMBER, "Soluble": GREEN}
         for c, pv in parts.items():                                # breakup: one line per type in the combination
@@ -546,7 +546,7 @@ def _ytd(ctx):
     years, latest_cy, ytd, yoy, cut, shown, sc, unit, fmt = (
         ctx[k_] for k_ in ("years", "latest_cy", "ytd", "yoy", "cut", "shown", "sc", "unit", "fmt"))
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} YTD {cut}</div>"
-                f"<div class='card-desc'>{sc.split(' · ', 1)[1]} · label = YoY</div></div>", unsafe_allow_html=True)
+                "</div>", unsafe_allow_html=True)
     yy = [y for y in years if y in shown or y == latest_cy]
     colors = [NAVY if y == latest_cy else "#c3cbe0" for y in yy]
     labels = [f"{yoy[y]:+.1f}%" if pd.notna(yoy[y]) else "" for y in yy]
@@ -561,8 +561,11 @@ def _ytd(ctx):
         fig.add_annotation(x=y, y=v, text=tot_txt + yo_txt, showarrow=False, yanchor="bottom", yshift=3,
                            font=dict(size=11 if latest else 9.5, color=NAVY if latest else AXIS))
     rows = len(yy) + 5                                             # roughly the table's height, so the two end level
-    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", bargap=0.45,
-               yaxis=dict(rangemode="tozero")), key="mc_ytd")
+    style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", bargap=0.45,
+          yaxis=dict(rangemode="tozero"))
+    fig.update_xaxes(tickangle=0, tickfont=dict(size=10))
+    fig.update_layout(margin=dict(r=24, t=24))
+    show(fig, key="mc_ytd")
 
 
 def _pace(ctx, proj):
@@ -594,9 +597,8 @@ def _pace(ctx, proj):
             center = now / sh5 if sh5 > 0 else np.nan
             method = "seasonal share (L5Y)"
 
-    sub = f"{latest_cy} = YTD + {method}" if pd.notna(center) else "Complete crop years"
     st.markdown(f"<div class='tbl-head'><div class='chart-head'>{ctx['comm']} Full-Year Totals</div>"
-                f"<div class='card-desc'>{sub}</div></div>", unsafe_allow_html=True)
+                "</div>", unsafe_allow_html=True)
 
     full_yy = [y for y in yy if y != latest_cy or common >= 12]
     colors = ["#c3cbe0"] * len(full_yy)
@@ -615,15 +617,15 @@ def _pace(ctx, proj):
                              hovertemplate=(f"Projected full year: {format(center, fmt)} {unit}<br>"
                                             f"Range: {format(lo, fmt)} – {format(hi, fmt)}<extra></extra>")))
     if pd.notna(center):                                           # projected total above the whisker, never squeezed
-        fig.add_annotation(x=latest_cy, y=max(hi, center), text=f"<b>{c(center)}</b>", showarrow=False,
+        fig.add_annotation(x=latest_cy, y=max(hi, center), text=f"<b>{c(center)}</b><br><span style='font-size:9.5px;color:#5a6688'>({c(lo)}–{c(hi)})</span>",
+                           showarrow=False,
                            yanchor="bottom", yshift=4, font=dict(size=11, color=NAVY))
     rows = len(yy) + 5                                             # roughly the table's height, so the cards end level
-    show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", barmode="stack",
-               bargap=0.35, yaxis=dict(rangemode="tozero")), key="mc_pace")
-    if pd.notna(center):
-        st.markdown(f"<div class='card-desc' style='text-align:center'>Low–high {c(lo)} – {c(hi)} "
-                    f"(10th–90th pct of this YTD under the last {len(full)} years' seasonality)</div>",
-                    unsafe_allow_html=True)
+    style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", barmode="stack",
+          bargap=0.35, yaxis=dict(rangemode="tozero"))
+    fig.update_xaxes(tickangle=0, tickfont=dict(size=10))
+    fig.update_layout(margin=dict(r=24, t=40))
+    show(fig, key="mc_pace")
 
 
 def _table(ctx):
@@ -636,19 +638,22 @@ def _table(ctx):
 
 
 # ── Pieces ────────────────────────────────────────────────────────────────────
-def _band(fig, b, n, fmt):
+def _band(fig, b, n, fmt, shade=True):
     """b = DataFrame (reference years x crop months). Light teal bands: min-max, 10th-90th and 25th-75th percentile."""
     if len(b) < 2:
         return
     x = MONTHS
-    for lo, hi, a, name in [(b.min(), b.max(), 0.08, f"Min–Max L{n}Y"),
-                            (b.quantile(0.10), b.quantile(0.90), 0.16, "10th–90th pct"),
-                            (b.quantile(0.25), b.quantile(0.75), 0.30, "25th–75th pct")]:
+    for lo, hi, a, name in [] if not shade else [(b.quantile(0.10), b.quantile(0.90), 0.09, "10th–90th pct"),   # min-max = the thin lines
+                            (b.quantile(0.25), b.quantile(0.75), 0.20, "25th–75th pct")]:
         fig.add_trace(go.Scatter(x=x, y=hi.values, mode="lines", showlegend=False, line=dict(width=0),
                                  hoverinfo="skip", legendgroup="band"))
         fig.add_trace(go.Scatter(x=x, y=lo.values, name=f"L{n}Y range", mode="lines", line=dict(width=0),
-                                 fill="tonexty", fillcolor=rgba(TEAL, a), hoverinfo="skip", legendgroup="band",
-                                 showlegend=(a == 0.30)))          # one legend entry toggles all three bands
+                                 fill="tonexty", fillcolor=rgba(SLATE, a), hoverinfo="skip", legendgroup="band",
+                                 showlegend=(a == 0.20)))          # one legend entry toggles all three bands
+    for edge, colr, nm in [(b.max(), "rgba(31,157,111,.55)", "Max"), (b.min(), "rgba(201,74,74,.55)", "Min")]:
+        fig.add_trace(go.Scatter(x=x, y=edge.values, name=nm, mode="lines", line=dict(color=colr, width=1),
+                                 hovertemplate=f"{nm} L{n}Y: %{{y:{fmt}}}<extra></extra>", legendgroup="band" if shade else None,
+                                 showlegend=not shade))              # no shade: Max / Min get their own legend entries
     fig.add_trace(go.Scatter(x=x, y=b.mean().values, name="Avg", mode="lines",
                              line=dict(color=AXIS, width=1.5, dash="dot"), hovertemplate=f"%{{y:{fmt}}}"))
 
@@ -714,7 +719,7 @@ def _projection(piv, latest_cy, prev_cy, common, ref, unit, fmt):
 
 
 def _heatmap(piv, shown, latest_cy, common, ytd, yoy, ref, fmt, cut):
-    hdr = MONTHS + ["Total", "Total YoY", f"YTD ({cut})", "YTD YoY"]
+    hdr = MONTHS + ["Total", "Total<br>YoY", f"YTD<br>{cut}", "YTD<br>YoY"]          # 2-line heads: columns fit their numbers
     body = piv.loc[[y for y in shown if y in piv.index]]
     vals = body.to_numpy(dtype=float)
     vals = vals[~np.isnan(vals) & (vals > 0)]

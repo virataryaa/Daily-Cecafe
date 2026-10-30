@@ -348,6 +348,11 @@ def render_flow():
         n = int(st.number_input("Rolling window (days)", min_value=1, max_value=120, value=30, step=1, key="flow_n"))
         how = st.radio("Show", ["Average", "Sum"], horizontal=True, key="flow_how")
         span = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "5Y", "All"], index=5, key="flow_span")
+        basis = st.selectbox("Crop year", list(CY_PRESETS) + ["Custom"], key="flow_cy")
+        if basis == "Custom":
+            cy_m = MONTHS.index(st.selectbox("Start month", MONTHS, index=6, key="flow_cy_start")) + 1
+        else:
+            cy_m = CY_PRESETS[basis]
     flow = daily_flow(df)
     if flow.empty:
         st.info("Nothing to show.")
@@ -355,9 +360,9 @@ def render_flow():
     end = flow.dropna(how="all").index.max()
     if span in ("3M", "6M"):
         start = end - pd.DateOffset(months=int(span[0]))
-    else:                                                         # year spans start on 1 Jan: 2Y = Jan last year
+    else:                                                         # year spans start on the crop-year start
         yrs = {"1Y": 1, "2Y": 2, "5Y": 5, "All": 10}[span]
-        start = pd.Timestamp(end.year - yrs + 1, 1, 1)
+        start = pd.Timestamp(crop_year(end, cy_m) - yrs + 1, cy_m, 1)
     start = max(flow.index.min(), start)
     lab = f"{n}d {'avg' if how == 'Average' else 'sum'}" if n > 1 else "daily"
     unit = "/day" if how == "Average" or n == 1 else f" / {n}d"
@@ -374,35 +379,50 @@ def render_flow():
             st.plotly_chart(fig, width="stretch", key=f"flow_{c}")
         with right:
             st.markdown(f"<div class='chart-head'>{c} · seasonality · {lab}</div>", unsafe_allow_html=True)
-            st.plotly_chart(flow_season_fig(r.loc[start:end], end.year), width="stretch", key=f"flow_s_{c}")
+            st.plotly_chart(flow_season_fig(r.loc[start:end], crop_year(end, cy_m), cy_m), width="stretch", key=f"flow_s_{c}")
 
 
-def flow_season_fig(r: pd.Series, cur_year: int, height=FLOW_H):
+CY_PRESETS = {"Jul–Jun": 7, "Oct–Sep": 10, "Apr–Mar": 4}            # same as Monthly Cecafe
+
+
+def crop_year(d: pd.Timestamp, start: int) -> int:
+    """First calendar year of the crop year that holds d (crop year starts in month `start`)."""
+    return d.year if d.month >= start else d.year - 1
+
+
+def cy_label(y: int, start: int) -> str:
+    return str(y) if start == 1 else f"{y % 100:02d}/{(y + 1) % 100:02d}"
+
+
+def flow_season_fig(r: pd.Series, cur_year: int, start: int = 1, height=FLOW_H):
     """Calendar-year seasonality of the rolled daily flow: every past year as a thin line, their average dashed navy,
     the current year on top (wine). Days plotted on a common leap year so Feb 29 lines up."""
     r = r.dropna()
-    yrs = sorted(set(r.index.year))
+    cy = pd.Series([crop_year(d, start) for d in r.index], index=r.index)
+    yrs = sorted(set(cy))
     past = [y for y in yrs if y != cur_year][-10:]
+    base = 2000 if start <= 2 else 1999                           # Feb always lands in 2000 (leap) -> 29 Feb fits
     def on_axis(y):
-        s_ = r[r.index.year == y]
-        return pd.Series(s_.values, index=[pd.Timestamp(2000, d.month, d.day) for d in s_.index])
-    axis = pd.date_range("2000-01-01", "2000-12-31")
+        s_ = r[cy == y]
+        return pd.Series(s_.values, index=[pd.Timestamp(base if d.month >= start else base + 1, d.month, d.day)
+                                           for d in s_.index])
+    axis = pd.date_range(pd.Timestamp(base, start, 1), pd.Timestamp(base + 1, start, 1) - pd.Timedelta(days=1))
     fig = go.Figure()
     if past:                                                      # every past year as its own thin line
         pal = ["#9aa6c4", "#c9a54a", "#7fb8a4", "#c98fa0", "#8fb3d9", "#b49ad1", "#d9a07a", "#a3b86b", "#7a8aa8", "#d1b06b"]
         for i, y in enumerate(past):
             h = on_axis(y)
-            fig.add_trace(go.Scatter(x=h.index, y=h.values, mode="lines", name=str(y),
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, mode="lines", name=cy_label(y, start),
                                      line=dict(color=pal[i % len(pal)], width=1.1), opacity=0.75,
                                      hovertemplate="%{y:,.0f}"))
     if len(past) >= 2:                                            # average drawn over the years so it stays visible
         bd = pd.DataFrame({y: on_axis(y).reindex(axis) for y in past})
         avg = bd.mean(axis=1).where(bd.count(axis=1) >= 2)
-        fig.add_trace(go.Scatter(x=avg.index, y=avg.values, mode="lines", name=f"Average {past[0]}-{past[-1]}",
+        fig.add_trace(go.Scatter(x=avg.index, y=avg.values, mode="lines", name=f"Average {cy_label(past[0], start)}–{cy_label(past[-1], start)}",
                                  line=dict(color=NAVY, width=2.6, dash="dash"), hovertemplate="%{y:,.0f}"))
     cur = on_axis(cur_year)
     if not cur.empty:
-        fig.add_trace(go.Scatter(x=cur.index, y=cur.values, mode="lines", name=str(cur_year),
+        fig.add_trace(go.Scatter(x=cur.index, y=cur.values, mode="lines", name=cy_label(cur_year, start),
                                  line=dict(color="#7b1e3a", width=2.4), hovertemplate="%{y:,.0f}"))
         fig.add_annotation(x=cur.index[-1], y=float(cur.iloc[-1]), text=f"<b>{mm(float(cur.iloc[-1]))}</b>",
                            showarrow=False, xanchor="left", xshift=6, font=dict(size=10.5, color="#7b1e3a"))
@@ -748,7 +768,7 @@ def render_table():
         n = len(cols) + 1
         st.markdown(
             "<div style='overflow-x:auto'><table class='dtab dtab-lg ptab'>"
-            f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
+            f"<tr><th></th><th colspan='{n}' class='g1'>Adj Daily Change</th>"
             f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th>"
             f"<th colspan='{n}' class='g4'>Month-end range (80%)</th></tr>"
             "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3
@@ -1134,15 +1154,13 @@ def render_visuals():
     # row 1: same month across years, Arabica | Robusta
     for col_, comm in zip(_chart_cols(), COMMS):
         with col_:
-            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>"
-                        "<div class='card-desc'>Bands = last 5 years. Bars = Adj daily, dotted = 5y avg/day.</div>",
+            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs same month, past years</div>",
                         unsafe_allow_html=True)
             st.plotly_chart(same_month_fig(comm), width="stretch")
     # row 2: last 4 months, Arabica | Robusta
     for col_, comm in zip(_chart_cols(), COMMS):
         with col_:
-            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>"
-                        "<div class='card-desc'>Bars = Adj daily, this vs previous month; dotted = avg/day of the 5 months before.</div>",
+            st.markdown(f"<div class='chart-head'>{comm}: {MON} vs last 4 months</div>",
                         unsafe_allow_html=True)
             st.plotly_chart(last_months_fig(comm), width="stretch")
 
@@ -1297,9 +1315,7 @@ def render_dispatched():
 
     c1, c2 = st.columns(2, gap="medium")
     with c1, st.container(border=True):
-        avg_txt = f" Average month-end <b>{sum(finals) / len(finals):.0%}</b> ({len(finals)} complete months)." if finals else ""
-        st.markdown(f"<div class='card-title'>Dispatched / Registered <span class='pill'>{kind}</span></div>"
-                    f"<div class='card-desc'>Daily, cumulative. Bands = earlier months.{avg_txt}</div>",
+        st.markdown(f"<div class='card-title'>Dispatched / Registered <span class='pill'>{kind}</span></div>",
                     unsafe_allow_html=True)
         st.plotly_chart(fig_p, width="stretch")
     with c2, st.container(border=True):

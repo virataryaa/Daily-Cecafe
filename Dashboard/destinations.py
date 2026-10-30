@@ -26,7 +26,8 @@ PROJ_METHODS = ["Off", "YoY %", "Seasonal share", "Monthly value", "Full-year ta
 NAVY, TEAL, GREEN, RED, AMBER, GREY = "#0a2463", "#1f8a9c", "#1f9d6f", "#c94a4a", "#c98a1f", "#8a94a8"
 INK, AXIS, GRID = "#1a1a2e", "#4a5578", "rgba(10,36,99,0.08)"
 OLDER = [TEAL, AMBER, GREEN, "#6b7fb8", GREY, "#8fc7d0", "#e2c38a", "#9fd1bb", "#b9c3de"]
-SEQ = ["#ffffff", "#f2f9f5", "#e3f3ea", "#cfeadc", "#b6dec9", "#99cfb3", "#7bbf9c"]   # soft greens
+SEQ = ["#ffffff", "#f5f7fc", "#eaeef8", "#dde4f3", "#ccd6ee", "#b8c6e6", "#a2b4dd"]   # soft navy tints
+SLATE = "#2b4a8a"                                                  # band fill: pale navy tints
 
 CSS = """
 <style>
@@ -34,7 +35,7 @@ CSS = """
 [data-testid="stHeader"] { background: #fafafa !important; }
 body, .main { color: #1a1a2e; }
 h1, h2, h3, h4, h5, h6 { color: #0a2463 !important; }
-.block-container { padding-top: 2.2rem; max-width: 1700px; }
+.block-container { padding-top: 2.2rem; }
 
 div[role="radiogroup"] { background: #eef0f6; padding: 4px; border-radius: 999px; gap: 2px; display: inline-flex; flex-wrap: wrap; }
 div[role="radiogroup"] label { background: transparent !important; border-radius: 999px !important; padding: 4px 12px !important; margin: 0 !important; }
@@ -83,15 +84,13 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .dx-hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px; padding: 14px 22px;
     margin-bottom: 10px; box-shadow: 0 2px 10px rgba(10,36,99,.18); display: flex; align-items: baseline;
     justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-.st-key-dx_hero { background: linear-gradient(135deg, #050f2c 0%, #0a1d4d 100%); border-radius: 14px;
-    padding: 4px 18px !important; margin-bottom: 8px; box-shadow: 0 2px 10px rgba(10,36,99,.18); }
+.st-key-dx_hero { margin-bottom: 8px; }
 .st-key-dx_hero [data-testid="stVerticalBlock"]:has(> .st-key-dx_sub) { align-items: flex-end; }
-.st-key-dx_hero div[role="radiogroup"] { background: rgba(255,255,255,.10) !important; }
 .st-key-dx_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
-.st-key-dx_hero div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p { color: #c9d3ea !important; font-size: 13px !important; }
-.st-key-dx_hero div[role="radiogroup"] label:has(input:checked) { background: #ffffff !important; }
-.st-key-dx_hero div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
-.dx-hero-t { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: .01em; line-height: 1.3; }
+.dx-hero-t { color: #0a2463; font-size: 17px; font-weight: 600; letter-spacing: .22em; line-height: 1.3;
+    text-transform: uppercase; text-align: center; padding: 2px 0 0; }
+.dx-hero-t::after { content: ""; display: block; width: 56px; height: 1px; margin: 9px auto 0;
+    background: linear-gradient(90deg, transparent, #0a2463, transparent); }
 .dx-hero-s { color: #c9d3ea; font-size: 12.5px; }
 .dx-hero-s b { color: #ffffff; }
 [class*="st-key-dx_card_"] { background: #ffffff; border: 1px solid #e6eaf2 !important; border-radius: 12px !important;
@@ -161,14 +160,11 @@ def t_render(header, rows, corner=""):
 def chart_head(title, desc, control):
     h, w = st.columns([1, 1], vertical_alignment="center")
     h.markdown(f"<div class='chart-head'>{title}</div>", unsafe_allow_html=True)
-    out = control(w)
-    st.markdown(f"<div class='card-desc'>{desc}</div>", unsafe_allow_html=True)
-    return out
+    return control(w)
 
 
 def card_head(title, desc=""):
-    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{title}</div>"
-                + (f"<div class='card-desc'>{desc}</div>" if desc else "") + "</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='tbl-head'><div class='chart-head'>{title}</div></div>", unsafe_allow_html=True)
 
 
 def section(label=""):
@@ -179,7 +175,7 @@ def section(label=""):
 def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0f", short=False, **extra):
     xaxis = dict(gridcolor=GRID, color=AXIS, showgrid=False)
     if months:
-        xaxis.update(categoryorder="array", categoryarray=months)
+        xaxis.update(categoryorder="array", categoryarray=months, range=[-0.3, len(months) - 0.7])  # air at both ends
     xaxis.update(extra.pop("xaxis", {}))
     yaxis = dict(gridcolor=GRID, color=AXIS, hoverformat=fmt, tickformat="~s" if short else fmt,
                  separatethousands=True)
@@ -200,7 +196,7 @@ def style(fig, height=340, legend="bottom", months=None, unified=False, fmt=",.0
 
 def show(fig, key):
     return st.plotly_chart(fig, width="stretch", key=key,
-                           config={"displaylogo": False, "modeBarButtonsToRemove": ["select2d", "lasso2d"]})
+                           config={"displaylogo": False, "displayModeBar": False})
 
 
 def seed(key, value):
@@ -295,15 +291,10 @@ def render():
     for k in ("dx_dest", "dx_span"):                                # keep values while their widget is hidden
         if k not in ss and f"_keep_{k}" in ss:
             ss[k] = ss[f"_keep_{k}"]
-    with st.container(key="dx_hero"):                              # navy header: title left, sub-tabs right
-        t_col, n_col = st.columns([3, 1.5], vertical_alignment="center")
-        title = t_col.empty()
-        sub = n_col.radio("View", ["Overview", "Detailed Overview"], horizontal=True, label_visibility="collapsed",
-                          key="dx_sub")
-    detailed = sub == "Detailed Overview"
-
+    title = st.empty()                                             # centred title, same as Monthly Cecafe
     with st.sidebar.container(key="side_dx"):                      # filters live in the sidebar, as dropdowns
         st.markdown("<div class='ms-lbl'>View</div>", unsafe_allow_html=True)
+        detailed = st.selectbox("Page", ["Overview", "Detailed Overview"], key="dx_sub") == "Detailed Overview"
         comm = st.selectbox("Type", list(TYPES), key="dx_comm")
         dests = _ranked_dests(df, comm) + [EUROPE_LABEL, TOTAL]
         if ss.get("dx_dest") not in dests:
@@ -311,6 +302,7 @@ def render():
         if not detailed:
             dest = st.selectbox("Destination", dests, key="dx_dest",
                                 format_func=lambda d: "All (Total)" if d == TOTAL else d)
+            seed("dx_span", "Last 10")
             span = st.selectbox("Years", ["Last 5", "Last 10", "All"], key="dx_span")
         unit = st.selectbox("Unit", list(UNITS), key="dx_unit")
         basis = st.selectbox("Crop year", list(CY_PRESETS), key="dx_cy")
@@ -424,7 +416,7 @@ def _charts(ctx, proj):
                                              key="dx_cumview", label_visibility="collapsed"))
         fig = go.Figure()
         if len(ref) >= 2:
-            _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt)
+            _band(fig, piv.loc[ref].cumsum(axis=1), len(ref), fmt, shade=False)
         cum_years = years[-4:] if cview == "Last 4" else years
         older = [y for y in cum_years if y not in (latest_cy, prev_cy)]
         for y in cum_years:
@@ -464,7 +456,7 @@ def _charts(ctx, proj):
         fig = go.Figure(go.Scatter(x=roll.index, y=[floor] * len(roll), mode="lines", line=dict(width=0),
                                    showlegend=False, hoverinfo="skip"))
         fig.add_trace(go.Scatter(x=roll.index, y=roll.values, mode="lines", line=dict(color=TEAL, width=2),
-                                 fill="tonexty", fillcolor=rgba(TEAL, 0.08), name="Combined" if parts else "Rolling",
+                                 fill="tonexty", fillcolor=rgba(SLATE, 0.07), name="Combined" if parts else "Rolling",
                                  hovertemplate=f"%{{x|%b-%y}}: %{{y:{fmt}}} {unit}<extra></extra>"))
         pal = {"Arabica": NAVY, "Robusta": AMBER}
         if len(parts) > 1:
@@ -498,8 +490,11 @@ def _ytd(ctx):
                   if lab else "")
         fig.add_annotation(x=y, y=v, text=tot_txt + yo_txt, showarrow=False, yanchor="bottom", yshift=3,
                            font=dict(size=11 if latest else 9.5, color=NAVY if latest else AXIS))
-    show(style(fig, height=max(260, 40 + (len(yy) + 5) * 18), legend=None, fmt=fmt, short=unit == "Bags",
-               bargap=0.45, yaxis=dict(rangemode="tozero")), key="dx_ytd")
+    style(fig, height=max(260, 40 + (len(yy) + 5) * 18), legend=None, fmt=fmt, short=unit == "Bags",
+          bargap=0.45, yaxis=dict(rangemode="tozero"))
+    fig.update_xaxes(tickangle=0, tickfont=dict(size=10))
+    fig.update_layout(margin=dict(r=24, t=24))
+    show(fig, key="dx_ytd")
 
 
 def _pace(ctx, proj):
@@ -540,27 +535,33 @@ def _pace(ctx, proj):
                              marker=dict(color=rgba(NAVY, 0.22), line=dict(color=NAVY, width=1)),
                              error_y=dict(type="data", symmetric=False, array=[max(hi - center, 0)],
                                           arrayminus=[max(center - lo, 0)], color=NAVY, thickness=1.5, width=6),
-                             text=[f"<b>{c(center)}</b>"], textposition="outside", textfont=dict(size=10, color=NAVY),
                              cliponaxis=False,
                              hovertemplate=(f"Projected full year: {format(center, fmt)} {unit}<br>"
                                             f"Range: {format(lo, fmt)} – {format(hi, fmt)}<extra></extra>")))
-    show(style(fig, height=max(260, 40 + (len(yy) + 5) * 18), legend=None, fmt=fmt, short=unit == "Bags",
-               barmode="stack", bargap=0.35, yaxis=dict(rangemode="tozero")), key="dx_pace")
-    if pd.notna(center):
-        st.markdown(f"<div class='card-desc' style='text-align:center'>Low–high {c(lo)} – {c(hi)} "
-                    f"(10th–90th pct, last {len(full)} years' seasonality)</div>", unsafe_allow_html=True)
+        fig.add_annotation(x=latest_cy, y=max(hi, center), showarrow=False, yanchor="bottom", yshift=4,
+                           text=f"<b>{c(center)}</b><br><span style='font-size:9.5px;color:#5a6688'>({c(lo)}–{c(hi)})</span>",
+                           font=dict(size=11, color=NAVY))
+    style(fig, height=max(260, 40 + (len(yy) + 5) * 18), legend=None, fmt=fmt, short=unit == "Bags",
+          barmode="stack", bargap=0.35, yaxis=dict(rangemode="tozero"))
+    fig.update_xaxes(tickangle=0, tickfont=dict(size=10))
+    fig.update_layout(margin=dict(r=24, t=40))
+    show(fig, key="dx_pace")
 
 
-def _band(fig, b, n, fmt):
-    """Light teal bands: min-max, 10th-90th and 25th-75th percentile, plus the average."""
+def _band(fig, b, n, fmt, shade=True):
+    """Pale slate bands (10th-90th, 25th-75th pct), min / max as thin green / red lines, plus the average."""
     x = MONTHS
-    for lo, hi, a in [(b.min(), b.max(), 0.08), (b.quantile(0.10), b.quantile(0.90), 0.16),
-                      (b.quantile(0.25), b.quantile(0.75), 0.30)]:
+    for lo, hi, a in [] if not shade else [(b.quantile(0.10), b.quantile(0.90), 0.09),
+                                           (b.quantile(0.25), b.quantile(0.75), 0.20)]:
         fig.add_trace(go.Scatter(x=x, y=hi.values, mode="lines", showlegend=False, line=dict(width=0),
                                  hoverinfo="skip", legendgroup="band"))
         fig.add_trace(go.Scatter(x=x, y=lo.values, name=f"L{n}Y range", mode="lines", line=dict(width=0),
-                                 fill="tonexty", fillcolor=rgba(TEAL, a), hoverinfo="skip", legendgroup="band",
-                                 showlegend=(a == 0.30)))
+                                 fill="tonexty", fillcolor=rgba(SLATE, a), hoverinfo="skip", legendgroup="band",
+                                 showlegend=(a == 0.20)))
+    for edge, colr, nm in [(b.max(), "rgba(31,157,111,.55)", "Max"), (b.min(), "rgba(201,74,74,.55)", "Min")]:
+        fig.add_trace(go.Scatter(x=x, y=edge.values, name=nm, mode="lines", line=dict(color=colr, width=1),
+                                 hovertemplate=f"{nm} L{n}Y: %{{y:{fmt}}}<extra></extra>",
+                                 legendgroup="band" if shade else None, showlegend=not shade))
     fig.add_trace(go.Scatter(x=x, y=b.mean().values, name="Avg", mode="lines",
                              line=dict(color=AXIS, width=1.5, dash="dot"), hovertemplate=f"%{{y:{fmt}}}"))
 
@@ -628,7 +629,7 @@ def _projection(ctx):
 def _heatmap(ctx):
     piv, shown, latest_cy, common, ytd, yoy, ref, fmt, cut = (
         ctx[k_] for k_ in ("piv", "shown", "latest_cy", "common", "ytd", "yoy", "ref", "fmt", "cut"))
-    hdr = MONTHS + ["Total", "Total YoY", f"YTD ({cut})", "YTD YoY"]
+    hdr = MONTHS + ["Total", "Total<br>YoY", f"YTD<br>{cut}", "YTD<br>YoY"]          # 2-line heads: columns fit their numbers
     body = piv.loc[[y for y in shown if y in piv.index]]
     vals = body.to_numpy(dtype=float)
     vals = vals[~np.isnan(vals) & (vals > 0)]

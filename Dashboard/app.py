@@ -83,8 +83,6 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .st-key-entry_nav div[role="radiogroup"] label:has(input:checked) { background: #c2410c !important; }
 .sb-label { font-size: 11px; color: #7a86a8; text-transform: uppercase; letter-spacing: .06em; margin: 6px 0 4px; }
 .st-key-nav div[role="radiogroup"] label { padding: 7px 18px !important; }
-.st-key-monthsel { display: flex; justify-content: flex-end; }
-.st-key-monthsel [data-baseweb="select"] { min-width: 210px; max-width: 250px; margin-left: auto; }
 .st-key-monthsel [data-baseweb="select"] > div { border-radius: 999px !important; border: 1.5px solid #0a2463 !important;
     background: #ffffff !important; box-shadow: 0 1px 5px rgba(10,36,99,0.14); min-height: 40px; padding-left: 8px; }
 .st-key-monthsel [data-baseweb="select"] div, .st-key-monthsel [data-baseweb="select"] span { color: #0a2463 !important; font-weight: 600; }
@@ -199,6 +197,97 @@ def accuracy_table(data: pd.DataFrame, comm: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+RANGE_FROM = 11                                                   # days 1-10 swing too much to give a range
+
+
+@st.cache_data(ttl=600)
+def miss_band(data: pd.DataFrame, comm: str, year: int, month: int) -> pd.DataFrame:
+    """Per day of month: 10th / 90th percentile of the projection miss (%) over past complete months of the
+    same calendar month (each month has its own pace); all months if fewer than 5 past years of it."""
+    def past(c):                                                  # never the month being projected
+        t = accuracy_table(data, c)
+        return t if t.empty else t[(t.year != year) | (t.month != month)]
+    a = past(comm)
+    if a.empty:                                                   # Soluble: no history yet, pool Arabica + Robusta
+        a = pd.concat([past(c) for c in COMMS])
+    if not a.empty and a.loc[a.month == month, "year"].nunique() >= 5:
+        a = a[a.month == month]
+    if a.empty:
+        return pd.DataFrame(columns=["lo", "hi"])
+    return a.groupby("day")["err"].agg(lo=lambda v: v.quantile(0.1), hi=lambda v: v.quantile(0.9))
+
+
+def likely_range(comm, day, proj):
+    """(low, high) month-end for a projection made on `day`; 8 of 10 past months ended inside it."""
+    b = miss_band(df, comm, sel_y, sel_m)
+    if proj is None or day < RANGE_FROM or day not in b.index:
+        return None
+    r = b.loc[day]
+    return proj / (1 + r.hi / 100), proj / (1 + r.lo / 100)
+
+
+def mm(v):
+    return f"{v / 1e6:.2f}M" if abs(v) >= 1e6 else f"{v / 1e3:,.0f}k"
+
+
+def band_fig(comm):
+    """Linear projection by day (from day 11) with the 80% month-end range around it."""
+    cur = month_series(df[comm], sel_y, sel_m)
+    dim = month_dim(sel_y, sel_m)
+    pts = [(d, v / d * dim, likely_range(comm, d, v / d * dim)) for d, v in cur.items()]
+    pts = [(d, p, r) for d, p, r in pts if r]
+    if not pts:
+        return None
+    x = [d for d, _, _ in pts]
+    lo, hi, pr = [r[0] for _, _, r in pts], [r[1] for _, _, r in pts], [p for _, p, _ in pts]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=hi, mode="lines", line=dict(width=1, color="rgba(43,74,138,.25)", shape="spline"),
+                             showlegend=False, hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=x, y=lo, mode="lines", fill="tonexty", fillcolor="rgba(43,74,138,0.10)",
+                             line=dict(width=1, color="rgba(43,74,138,.25)", shape="spline"), name="80% range",
+                             customdata=[[mm(l_), mm(h_)] for l_, h_ in zip(lo, hi)],
+                             hovertemplate="Range %{customdata[0]} – %{customdata[1]}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=x, y=pr, mode="lines", name="Linear month-end",
+                             line=dict(color=NAVY, width=2.6, shape="spline"),
+                             hovertemplate="Projection %{y:,.0f}<extra></extra>"))
+    mon = MONTHS[sel_m - 1]
+    fig.add_trace(go.Scatter(x=[x[-1]], y=[pr[-1]], mode="markers", showlegend=False, hoverinfo="skip",
+                             marker=dict(size=9, color=NAVY, line=dict(color="#ffffff", width=2))))
+    fig.add_annotation(x=x[-1], y=pr[-1], text=f"<b>{mm(pr[-1])}</b><br>{mm(lo[-1])} – {mm(hi[-1])}", showarrow=False,
+                       xanchor="left", xshift=10, align="left", font=dict(size=11, color=NAVY))
+    ticks = [RANGE_FROM] + [d for d in range(15, dim + 1, 5)] + ([dim] if dim % 5 > 2 else [])
+    chart_layout(fig, height=270,
+                 xaxis=dict(range=[RANGE_FROM - 0.5, dim + 0.5], tickmode="array", tickvals=ticks,
+                            ticktext=[f"{d} {mon}" for d in ticks], showgrid=False, ticks="outside",
+                            ticklen=4, tickcolor="#d5dae6", tickfont=dict(size=10.5, color="#6a7594"),
+                            hoverformat="d", unifiedhovertitle=dict(text=f"%{{x}} {mon}")),
+                 yaxis=dict(tickformat=".2s", hoverformat=",.0f", nticks=5))
+    fig.update_layout(legend=dict(orientation="h", x=0, y=1.0, xanchor="left", yanchor="bottom",
+                                  font=dict(size=11, color="#5a6688"), bgcolor="rgba(0,0,0,0)"),
+                      margin=dict(t=34, b=10, l=10, r=105))       # legend on top, room on the right for the end label
+    return fig
+
+
+def now_callout(fig, x, y):
+    """Subtle 'where we stand' callout on the current month's last point (navy, white chip, short arrow)."""
+    fig.add_annotation(x=x, y=y, xref="x", yref="y", text=mm(y), showarrow=True, arrowhead=0, arrowwidth=1,
+                       arrowcolor="rgba(10,36,99,0.45)", ax=-34, ay=-26, bgcolor="rgba(255,255,255,0.92)",
+                       bordercolor="rgba(10,36,99,0.25)", borderwidth=1, borderpad=3,
+                       font=dict(size=10, color=NAVY))
+
+
+def render_band_charts():
+    cs = st.columns(len(ALL), gap="medium")
+    for c_, comm in zip(cs, ALL):
+        fig = band_fig(comm)
+        with c_:
+            st.markdown(f"<div class='chart-head'>{comm} month-end</div>", unsafe_allow_html=True)
+            if fig is None:
+                st.info(f"Range shows from day {RANGE_FROM}.")
+            else:
+                st.plotly_chart(fig, width="stretch", key=f"band_{comm}")
+
+
 def fmt(v):
     return "-" if v is None or pd.isna(v) else f"{v:,.0f}"
 
@@ -245,6 +334,189 @@ def sidebar_stats(rows):
 # ---------------------------------------------------------------------------------------------
 # sidebar
 # ---------------------------------------------------------------------------------------------
+st.markdown("<style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');</style>", unsafe_allow_html=True)
+# ── ICE glacier theme (same family as Coffee SnD / Commodity Calendar), drawn before any widget so reruns never flash unstyled ──
+st.markdown("""<style>
+[data-testid="stSidebar"] { background: linear-gradient(160deg, rgba(246,248,253,.92) 0%, rgba(233,238,248,.88) 55%, rgba(240,236,246,.9) 100%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
+  border-right: 1px solid rgba(255,255,255,.75) !important; box-shadow: inset -1px 0 0 rgba(10,36,99,.06), 6px 0 28px rgba(10,36,99,.06); }
+div[role="radiogroup"], .stTabs [data-baseweb="tab-list"] { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(236,242,251,.93) 60%, rgba(229,237,249,.9)) !important;
+  border: 1px solid rgba(43,74,138,.14) !important; box-shadow: 0 4px 16px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95) !important; }
+div[role="radiogroup"] label:has(input:checked), .stTabs [aria-selected="true"] { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important;
+  box-shadow: 0 2px 8px rgba(30,58,110,.28), inset 0 1px 0 rgba(255,255,255,.18) !important; }
+div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] { background: #ffffff; border: 1px solid rgba(43,74,138,.12); border-radius: 16px; padding: 6px 8px;
+  box-shadow: 0 6px 22px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95); }
+.dtab, .tbl-wrap { border: 1px solid rgba(43,74,138,.14) !important; border-radius: 12px; background: #ffffff !important; box-shadow: none !important; }
+.tbl-wrap { overflow-x: auto; margin-bottom: 12px !important; }          /* stays inside its card */
+[class*="st-key-mc_card_"], [class*="st-key-dx_card_"] { padding-bottom: 12px !important; border-color: rgba(43,74,138,.12) !important;
+  box-shadow: 0 6px 22px rgba(30,58,110,.07) !important; }
+.dtab { border-collapse: separate !important; border-spacing: 0; }
+.dtab .sub th { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; color: #ffffff !important; }
+.dtab .g2 { background: #e6edf8 !important; } .dtab .g3 { background: #e8f2f6 !important; }
+.dtab .g1, .dtab .g2, .dtab .g3 { border-color: rgba(43,74,138,.10) !important; }
+.dtab td { border-bottom-color: rgba(43,74,138,.07) !important; }
+.dtab tr:nth-child(even) td:not(.dt):not(.b):not(.avgc):not(.early) { background: #f8fafd; }
+.dtab td.dt { background: #f1f5fb !important; } .dtab td.b { background: #eef3fa !important; }
+.tbl th { background: linear-gradient(180deg, #f3f7fd, #e7eef9) !important; color: #1e3a6e !important; }
+.tbl td { border-bottom-color: rgba(43,74,138,.07) !important; } .tbl td.lbl { background: #f5f8fc !important; border-right-color: rgba(43,74,138,.10) !important; }
+.tbl tr:nth-child(even) td:not(.lbl) { background: #f9fbfe; }
+.grid-head { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(232,239,250,.92)) !important; border: 1px solid rgba(43,74,138,.12);
+  border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
+.card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: Plus Jakarta Sans, sans-serif !important; letter-spacing: .01em; }
+/* ── Ice theme completion (matches COT Comprehensive / Futures OI / TDM Comprehensive) ── */
+[data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
+[data-testid="stHeader"] { background: transparent !important; pointer-events: none; }
+[data-testid="stHeader"] button, [data-testid="stHeader"] a, [data-testid="stToolbar"] { pointer-events: auto; }
+html, body, [class*="css"], [data-testid="stAppViewContainer"], .stMarkdown, button, input, textarea {
+  font-family: Plus Jakarta Sans, sans-serif !important; -webkit-font-smoothing: antialiased; }
+.page-title, .card-title, .chart-head, .mc-sec, .dx-sec, .mc-hero-t, .dx-hero-t, [data-testid="stWidgetLabel"] p {
+  font-family: Plus Jakarta Sans, sans-serif !important; }
+/* dropdowns: glass pill, lift on hover, wine focus ring + caret; frosted menus */
+[data-baseweb="select"] { background: transparent !important; box-shadow: none !important; }
+[data-baseweb="select"] > div { background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(238,242,250,.62)) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(170%); backdrop-filter: blur(14px) saturate(170%);
+  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 999px !important; min-height: 34px;
+  box-shadow: 0 1px 2px rgba(10,36,99,.06), 0 6px 18px rgba(10,36,99,.08), inset 0 1px 0 rgba(255,255,255,.95); transition: box-shadow .18s, transform .18s; }
+[data-baseweb="select"] > div:hover { box-shadow: 0 0 0 3px rgba(10,36,99,.07), 0 8px 22px rgba(10,36,99,.14), inset 0 1px 0 rgba(255,255,255,.95); transform: translateY(-1px); }
+[data-baseweb="select"] > div:focus-within { box-shadow: 0 0 0 3px rgba(123,30,58,.16), 0 8px 22px rgba(10,36,99,.14) !important; }
+[data-baseweb="select"] svg { fill: #7b1e3a !important; }
+[class*="st-key-side_"] { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(43,74,138,.10); }
+[class*="st-key-side_"] [data-testid="stWidgetLabel"] p { font-size: 11.5px !important; color: #6a7594 !important; }
+[data-testid="stSidebar"] .st-key-dx_proj button { width: 100%; justify-content: space-between; }
+.st-key-mc_side_view { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(43,74,138,.10); }
+.st-key-mc_side_view [data-testid="stWidgetLabel"] p { font-size: 11.5px !important; color: #6a7594 !important; }
+.mc-side-lbl { font-size: 11.5px; color: #6a7594; margin: 2px 0 4px; }
+[data-testid="stSidebar"] [class*="st-key-mc_proj"] button, [data-testid="stSidebar"] .st-key-mc_proj button { width: 100%; justify-content: space-between; }
+.st-key-mc_side { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(43,74,138,.10); }
+.st-key-mc_side [data-testid="stWidgetLabel"] p { font-size: 11.5px !important; color: #6a7594 !important; }
+.st-key-monthsel { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(43,74,138,.10); }
+.ms-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #8a94a8; margin: 0 0 6px 16px; }
+.st-key-monthsel [data-baseweb="select"] > div { border: 1px solid rgba(43,74,138,.16) !important; min-height: 38px; border-radius: 12px !important; }
+.st-key-monthsel [data-baseweb="select"] div { color: #0a2463 !important; font-weight: 600 !important; }
+[data-baseweb="popover"] [data-baseweb="menu"], [data-baseweb="popover"] ul {
+  background: rgba(255,255,255,.82) !important; -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 14px !important; box-shadow: 0 14px 40px rgba(10,36,99,.18) !important; }
+[data-baseweb="popover"] li:hover { background: rgba(43,74,138,.07) !important; }
+/* vertical option lists inside popovers: a plain menu, not a pill track */
+[data-testid="stPopoverBody"] div[role="radiogroup"] { background: none !important; border: none !important; box-shadow: none !important;
+  border-radius: 0 !important; padding: 0 !important; display: flex !important; flex-direction: column; gap: 2px; width: 100%; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label { width: 100%; border-radius: 8px !important; padding: 5px 10px !important; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) { background: rgba(43,74,138,.09) !important; box-shadow: none !important; }
+[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
+/* pill rows lift on hover; charts/cards/buttons/expanders */
+div[role="radiogroup"] label { transition: background .15s, transform .15s; }
+div[role="radiogroup"] label:not(:has(input:checked)):hover { transform: translateY(-1px); }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] { overflow: hidden; transition: box-shadow .2s; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"] .main-svg { border-radius: 14px; }
+[data-testid="stMain"] [data-testid="stPlotlyChart"]:hover { box-shadow: 0 1px 2px rgba(10,36,99,.05), 0 10px 26px rgba(30,58,110,.10), inset 0 1px 0 #ffffff; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) { border-radius: 18px !important;
+  border-color: rgba(43,74,138,.10) !important; box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(30,58,110,.06) !important; }
+.st-key-mc_filters, .st-key-dx_filters { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 18px !important;
+  box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 10px 30px rgba(30,58,110,.08), inset 0 1px 0 #ffffff !important; }
+.stButton > button, .stDownloadButton > button { border-radius: 999px !important; transition: box-shadow .18s, transform .18s; }
+.stButton > button:hover, .stDownloadButton > button:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(10,36,99,.12) !important; }
+div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 14px !important; box-shadow: 0 1px 3px rgba(10,36,99,.06); background: #ffffff; }
+/* headings: section heads minimal + centred on a royal-grey wash bar; chart/card titles navy, compact */
+.mc-rule, .dx-rule { border-top: none !important; margin: 18px 0 0 !important; }
+.mc-sec, .dx-sec { display: block; text-align: center; padding: 7px 14px; border-radius: 10px; margin: 6px 0 8px !important;
+  background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.12) 22%, rgba(92,104,136,.12) 78%, rgba(92,104,136,0) 100%);
+  font-size: 12.5px !important; font-weight: 700 !important; letter-spacing: .12em !important; text-transform: uppercase; color: #3b4663 !important; }
+.page-title { font-size: 1.15rem !important; letter-spacing: -.01em; }
+.card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
+.card-desc { color: #7a86a8 !important; font-size: 12px !important; }
+/* one header style for every chart and table title (chart-head, card-title, grid-head): centred, small caps-lock
+   with wide tracking on a compact royal-grey wash bar; the note under a title is centred too */
+.chart-head, .card-title, .grid-head { display: block !important; text-align: center; text-transform: uppercase; font-size: 12px !important;
+  font-weight: 700 !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px 0 4px !important; padding: 4px 12px !important;
+  border: none !important; border-radius: 8px !important; box-shadow: none !important;
+  background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%) !important; }
+.card-title .pill { letter-spacing: .04em; text-transform: none; }
+.chart-head + .card-desc, .card-title + .card-desc, .tbl-head .card-desc { text-align: center; margin-top: 0 !important; }
+.pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
+/* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */
+.dtab .sub th { background: linear-gradient(180deg, #f7f9fd, #e8eef9) !important; color: #1e3a6e !important; font-weight: 700 !important;
+  font-size: .92em; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid rgba(43,74,138,.18) !important; padding-top: 5px; padding-bottom: 5px; }
+.dtab td.dt { color: #1e3a6e; font-weight: 600; }
+.dtab tbody tr:hover td, .tbl tbody tr:hover td { background-color: rgba(43,74,138,.06) !important; }
+.tbl-wrap, .dtab { box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(10,36,99,.06) !important; }
+.tbl th { font-weight: 700 !important; letter-spacing: .06em; text-transform: uppercase; font-size: .9em; border-bottom: 1px solid rgba(43,74,138,.18) !important; }
+/* ── Sidebar nav (same as Daily Miner): clean vertical menu, soft navy pick, amber first item ── */
+.sb-title { font-family: Plus Jakarta Sans, sans-serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
+.sb-tag { font-family: Plus Jakarta Sans, sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }
+.st-key-sb_nav div[role="radiogroup"] { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
+  display: flex !important; flex-direction: column; gap: 4px; width: 100%; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.st-key-sb_nav div[role="radiogroup"] label { border-radius: 12px !important; padding: 10px 16px !important; width: 100%; transition: background .15s, transform .15s; }
+.st-key-sb_nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p {
+  font-family: Plus Jakarta Sans, sans-serif !important; font-size: 14.5px !important; font-weight: 600 !important; color: #4a5578 !important; }
+.st-key-sb_nav div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; transform: translateX(2px); }
+.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) { background: linear-gradient(135deg, #2b4a8a, #1e3a6e) !important;
+  box-shadow: 0 6px 16px rgba(30,58,110,.25), inset 0 1px 0 rgba(255,255,255,.18) !important; }
+.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child { margin-bottom: 8px; position: relative; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -7px; height: 1px; background: rgba(43,74,138,.10); }
+.st-key-sb_nav div[role="radiogroup"] label:first-child div[data-testid="stMarkdownContainer"] p { color: #d9701a !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) { background: linear-gradient(135deg, #f0923a, #d9701a) !important;
+  box-shadow: 0 6px 16px rgba(217,112,26,.30), inset 0 1px 0 rgba(255,255,255,.25) !important; }
+.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
+.eg-band { display: flex; margin: 6px 0 0; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.eg-grp { flex: none; text-align: center; padding: 6px 0 5px; color: #1e3a6e; border-bottom: 2px solid #2b4a8a; box-sizing: border-box; }
+.eg-grp:nth-child(3) { color: #1f6f7c; border-bottom-color: #1f8a9c; }
+.eg-grp:nth-child(4) { color: #4b3f8f; border-bottom-color: #7a6cc0; }
+.eg-empty { border-bottom: none; }
+.eg-head { display: flex; position: relative; z-index: 5; pointer-events: none; height: 30px; margin: 4px 0 calc(-30px - 1rem) 1px;
+  border-radius: 10px 10px 0 0; overflow: hidden; background: linear-gradient(180deg, #2b4a8a, #1e3a6e); width: max-content; }
+.eg-34 { height: 34px; margin-bottom: calc(-34px - 1rem); } .eg-34 > div { line-height: 34px !important; }
+.eg-head > div { flex: none; box-sizing: border-box; line-height: 30px; text-align: center; color: #ffffff;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; border-right: 1px solid rgba(255,255,255,.12); }
+.ptab { width: 100%; font-size: 12px !important; box-shadow: none !important; border: none !important; }
+.ptab th, .ptab td { padding: 4px 7px !important; }
+.ptab tr:first-child th { background: transparent !important; border: none !important; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; padding-bottom: 6px !important; }
+.ptab .g1 { color: #5c6888 !important; box-shadow: inset 0 -2px 0 #b8c0d4; }
+.ptab .g2 { color: #1e3a6e !important; box-shadow: inset 0 -2px 0 #2b4a8a; }
+.ptab .g3 { color: #1f6f7c !important; box-shadow: inset 0 -2px 0 #1f8a9c; }
+.ptab .g4 { color: #6b5a2e !important; box-shadow: inset 0 -2px 0 #c9a54a; }
+.ptab .sub th { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; color: #ffffff !important; font-size: 10.5px !important;
+  font-weight: 700 !important; letter-spacing: .08em; border-bottom: none !important; padding-top: 7px !important; padding-bottom: 7px !important; }
+.ptab td { background: #ffffff !important; border-bottom: 1px solid #f1f3f7 !important; border-left: none !important; border-right: none !important;
+  color: #2b3350; font-variant-numeric: tabular-nums; }
+.ptab td.dt { background: #ffffff !important; color: #1e3a6e; font-weight: 700; }
+.ptab td.b { font-weight: 700; color: #0a2463; border-right: 1px solid #e6e9f0 !important; }
+.ptab td.early { background: #ffffff !important; color: #b0b7c8; }
+.ptab td.rng { color: #6b5a2e; white-space: nowrap; }
+.ptab td.rng.b { color: #4d3f17; border-right: none !important; }
+.ptab td, .ptab th { text-align: center !important; }
+.miss-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e0a030; margin-right: 6px;
+  vertical-align: middle; box-shadow: 0 0 0 2px rgba(224,160,48,.2); }
+.ptab tr.gap td { color: #a3abbe !important; font-style: italic; font-weight: 400 !important; }
+.ptab tbody tr:hover td { background: #f6f8fc !important; }
+/* ── Entry polish: hero, status chip, entry cards, grids, buttons ── */
+.ent-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding: 20px 26px; margin: 0 0 14px;
+  border-radius: 20px; border: 1px solid rgba(255,255,255,.85);
+  background: radial-gradient(120% 140% at 0% 0%, rgba(43,74,138,.14) 0%, rgba(43,74,138,0) 55%),
+              radial-gradient(90% 120% at 100% 100%, rgba(123,30,58,.10) 0%, rgba(123,30,58,0) 60%),
+              linear-gradient(160deg, #fbfcff, #eef2fa);
+  box-shadow: 0 1px 2px rgba(10,36,99,.05), 0 14px 36px rgba(30,58,110,.09), inset 0 1px 0 #ffffff; }
+.ent-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #7b1e3a; margin-bottom: 2px; }
+.ent-title { font-size: 1.65rem; font-weight: 800; letter-spacing: -.02em; color: #0a2463; line-height: 1.15; }
+.ent-title .pill { font-size: 12px; vertical-align: middle; letter-spacing: 0; }
+.ent-sub { font-size: 13px; color: #6a7594; margin-top: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(43,74,138,.14); background: rgba(255,255,255,.8); }
+.chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+.chip-ok { color: #1d6b4f; } .chip-ok .chip-dot { background: #22a06b; box-shadow: 0 0 0 3px rgba(34,160,107,.18); }
+.chip-ro { color: #8a5a12; } .chip-ro .chip-dot { background: #e0a030; box-shadow: 0 0 0 3px rgba(224,160,48,.2); }
+[class*="st-key-ent_card_"] { border-radius: 18px !important; background: linear-gradient(180deg, #ffffff, #fbfcfe) !important; padding: 6px 6px 10px !important; }
+[data-testid="stMain"] [data-testid="stDataFrame"], [data-testid="stMain"] [data-testid="stDataEditor"] {
+  border-radius: 12px; overflow: hidden; border: 1px solid rgba(43,74,138,.12); box-shadow: 0 4px 14px rgba(30,58,110,.06); }
+.stButton > button[kind="primary"] { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; border: none !important; color: #fff !important;
+  font-weight: 700 !important; box-shadow: 0 6px 16px rgba(30,58,110,.25) !important; }
+.stButton > button[kind="primary"]:disabled { background: #dfe4ee !important; color: #9aa3b8 !important; box-shadow: none !important; }
+.stButton > button[kind="secondary"] { background: #ffffff !important; border: 1px solid rgba(43,74,138,.18) !important; color: #1e3a6e !important; }
+</style>""", unsafe_allow_html=True)
+
 df = load()
 last_date = df.dropna(how="all").index.max()
 
@@ -258,8 +530,8 @@ for _k in KEEP:
         st.session_state[_k] = st.session_state[f"_keep_{_k}"]
 
 # the Entry pages moved to the sidebar's "Daily & Monthly Entry" section
-if st.session_state.get("main_tab") == "Entry":
-    st.session_state["main_tab"] = "Daily & Monthly Entry"
+if st.session_state.get("main_tab") in ("Entry", "Daily & Monthly Entry"):
+    st.session_state["main_tab"] = "Cecafe Entry"
 if st.session_state.get("page") == "Entry":
     st.session_state["page"] = "Registrations"
 
@@ -272,7 +544,7 @@ labels = [f"{MONTHS[m - 1]} {y}" for y, m in ym_all]
 with st.sidebar:
     st.markdown("<div class='sb-title'>Cecafe</div><div class='sb-tag'>Brazil exports · Daily · Monthly</div>", unsafe_allow_html=True)
     with st.container(key="sb_nav"):
-        main = st.radio("Section", ["Daily & Monthly Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
+        main = st.radio("Section", ["Cecafe Entry", "Daily Cecafe", "Monthly Cecafe", "Exports To Destination"],
                         index=1, label_visibility="collapsed", key="main_tab")          # opens on Daily Cecafe
 
 # the month filter lives in the Daily Cecafe tab (right of the page tabs); read it here so the title can use it
@@ -295,40 +567,54 @@ def render_table():
     cur = {c: month_series(df[c], sel_y, sel_m) for c in ALL}
     have = [c for c in ALL if not cur[c].empty]               # types with data this month -> Total
     cols = ALL                                                # always show all three columns
-    days = sorted(set().union(*[cur[c].index for c in have])) if have else []
+    # every calendar day up to the latest print: days Cecafe skipped (weekends, holidays) get the Adj daily
+    # (the jump split equally across the skipped days) and the cumulative that implies -- shown in grey italics
+    adj = {c: adjusted_daily(cur[c]) for c in have}
+    cumf = {c: adj[c].cumsum() for c in have}
+    last = max(cur[c].index.max() for c in have) if have else 0
+    days = list(range(1, last + 1))
 
     def total(vals):
         return None if any(v is None for v in vals) else sum(vals)
 
     rows_html = ""
-    prev = {c: 0.0 for c in cols}
     for d_ in days:
         cum, chg, prj = {}, {}, {}
         for c in cols:
-            v = cur[c].get(d_)
-            if v is not None and pd.notna(v):
-                cum[c], chg[c], prev[c] = v, v - prev[c], v
-                prj[c] = v / d_ * dim_sel                       # linear month-end projection as of that day
+            if c in have and d_ in cumf[c].index:
+                chg[c], cum[c] = float(adj[c][d_]), float(cumf[c][d_])
+                prj[c] = cum[c] / d_ * dim_sel                  # linear month-end projection as of that day
             else:
                 cum[c] = chg[c] = prj[c] = None
         e = d_ <= 10
-        rows_html += f"<tr><td class='dt'>{d_:02d}-{MONTHS[sel_m - 1]}</td>"
+        gap = not any(d_ in cur[c].index for c in have)        # no Cecafe print that day
+        missed = gap and pd.Timestamp(sel_y, sel_m, d_).weekday() < 5     # weekday, but Cecafe published nothing
+        dot = "<span class='miss-dot' title='Weekday, no Cecafe print'></span>" if missed else ""
+        rows_html += f"<tr class='{'gap' if gap else ''}'><td class='dt'>{dot}{d_:02d}-{MONTHS[sel_m - 1]}</td>"
         for grp, early in ((chg, False), (cum, False), (prj, e)):
             rows_html += ("".join(cell(grp[c], early=early) for c in cols)
                           + cell(total([grp[c] for c in have]), True, early=early))
+        rng = {c: likely_range(c, d_, prj[c]) for c in cols}
+        for c in cols:
+            rows_html += f"<td class='rng'>{f'{mm(rng[c][0])} – {mm(rng[c][1])}' if rng[c] else ''}</td>"
+        ok = [c for c in have if rng[c]]
+        rows_html += (f"<td class='rng b'>{mm(sum(rng[c][0] for c in ok))} – {mm(sum(rng[c][1] for c in ok))}</td>"
+                      if ok and len(ok) == len(have) else "<td class='rng b'></td>")
         rows_html += "</tr>"
 
     st.markdown(f"<div class='card-title'>Daily change and linear month-end <span class='pill'>{MON}</span></div>"
-                "<div class='card-desc'>Grey = day 1-10, too early to project.</div>", unsafe_allow_html=True)
+                "", unsafe_allow_html=True)
     if not days:
         st.info(f"No data for {MON} yet.")
     else:
         n = len(cols) + 1
         st.markdown(
-            "<div style='overflow-x:auto'><table class='dtab dtab-lg'>"
+            "<div style='overflow-x:auto'><table class='dtab dtab-lg ptab'>"
             f"<tr><th></th><th colspan='{n}' class='g1'>Change with Previous</th>"
-            f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th></tr>"
-            "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3 + "</tr>"
+            f"<th colspan='{n}' class='g2'>Cumulative Current Month</th><th colspan='{n}' class='g3'>Linear Month-end</th>"
+            f"<th colspan='{n}' class='g4'>Month-end range (80%)</th></tr>"
+            "<tr class='sub'><th>Until</th>" + ("".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th>") * 3
+            + "".join(f"<th>{c}</th>" for c in cols) + "<th>Total</th></tr>"
             + rows_html + "</table></div>",
             unsafe_allow_html=True)
     st.write("")
@@ -385,6 +671,35 @@ def grid_changes(before: pd.DataFrame, after: pd.DataFrame, cols, out=None):
     return out
 
 
+def grid_head_html(heads):
+    """Navy header laid over a data_editor's own header (same widths); clicks pass through to the grid."""
+    return "<div class='eg-head'>" + "".join(
+        f"<div style='width:{w}px;{'text-align:left;padding-left:10px' if i == 0 else ''}'>{t}</div>"
+        for i, (t, w) in enumerate(heads)) + "</div>"
+
+
+def proj_labels():
+    return [f"{c} month-end" for c in ALL]
+
+
+def proj_cols() -> pd.DataFrame:
+    """Per day and type: linear month-end, plus its 80% range from past same months (from day 11)."""
+    dim = month_dim(sel_y, sel_m)
+    out = {}
+    for c, lab in zip(ALL, proj_labels()):
+        cur = month_series(df[c], sel_y, sel_m)
+        col = []
+        for d in range(1, dim + 1):
+            if d not in cur.index or pd.isna(cur[d]):
+                col.append("")
+                continue
+            pr = cur[d] / d * dim
+            r = likely_range(c, d, pr)
+            col.append(f"{mm(pr)}   ({mm(r[0])} – {mm(r[1])})" if r else mm(pr))
+        out[lab] = col
+    return pd.DataFrame(out, index=[f"{d:02d}-{MONTHS[sel_m - 1]}" for d in range(1, dim + 1)])
+
+
 GRID_KEY = "entry_grid"
 GRIDS = {"Registered": {c: c for c in ALL}, "Dispatched": {f"Disp {c}": DISP[c] for c in ALL}}
 TOTALS = {"Registered": "Total", "Dispatched": "Disp Total"}
@@ -413,28 +728,49 @@ def render_entry_grid():
     if st.session_state.get("flash"):
         st.toast(st.session_state.pop("flash"))
     editable = entry_enabled()
-    st.markdown(f"<div class='card-title'>Entry <span class='pill'>{MON}</span></div>"
-                "<div class='card-desc'>Cumulative MTD from Cecafe, bags. Disp = dispatched. "
-                + ("Click a cell, type, Save." if editable else "Read-only: add github_token in Secrets.")
-                + "</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card-title'>Daily Cecafe <span class='pill'>{MON}</span></div>"
+                + ("" if editable else "<div class='card-desc'>Read-only: add github_token in Secrets.</div>"),
+                unsafe_allow_html=True)
     # one grid, one Date column: registered block, then dispatched block, each with a read-only total
     parts = []
     for kind, cols in GRIDS.items():
         part, tot = entry_grid(cols)
         part[TOTALS[kind]] = tot
         parts.append(part)
+    parts.append(proj_cols())                                 # read-only month-end + 80% range per type, far right
     g = pd.concat(parts, axis=1)
-    cfg = {c: st.column_config.TextColumn(c, alignment="right", width=80 if c in ALL else 108) for c in g.columns}
+    # widths sized to the content; short labels, the group goes in the band above (Registrations / Dispatched / Projection)
+    W_D, W_N, W_T, W_P = 72, 100, 108, 196
+    short = {**{c: c for c in ALL}, **{f"Disp {c}": c for c in ALL}, "Total": "Total", "Disp Total": "Total",
+             **{lab: c for c, lab in zip(ALL, proj_labels())}}
+    cfg = {c: st.column_config.TextColumn(short[c], alignment="center", width=W_N) for c in g.columns}
     for c in TOTALS.values():
-        cfg[c] = st.column_config.TextColumn(c, alignment="right", width=88, disabled=True)
-    cfg["_index"] = st.column_config.TextColumn("Date", width=58)
+        cfg[c] = st.column_config.TextColumn("Total", alignment="center", width=W_T, disabled=True)
+    for c, lab in zip(ALL, proj_labels()):
+        cfg[lab] = st.column_config.TextColumn(c, alignment="center", width=W_P, disabled=True,
+                                               help="Linear month-end from Registrations · (80% range from past same months, from day 11)")
+    cfg["_index"] = st.column_config.TextColumn("Date", width=W_D)
+    band = [("", W_D), ("Registrations", 3 * W_N + W_T), ("Dispatched", 3 * W_N + W_T),
+            ("Month-end projection · from Registrations", 3 * W_P)]
+    st.markdown("<div class='eg-band'>" + "".join(
+        f"<div class='eg-grp{' eg-empty' if not t else ''}' style='width:{w}px'>{t}</div>" for t, w in band) + "</div>",
+        unsafe_allow_html=True)
+    heads = ([("Date", W_D)] + [(c, W_N) for c in ALL] + [("Total", W_T)] + [(c, W_N) for c in ALL] + [("Total", W_T)]
+             + [(c, W_P) for c in ALL])
+    st.markdown(grid_head_html(heads), unsafe_allow_html=True)
     key = f"{GRID_KEY}_{sel_y}_{sel_m}"
     keys = [key]
     changes = {}
-    shown = g.style.set_properties(subset=list(TOTALS.values()),
-                                   **{"background-color": "#e9ecf2", "font-weight": "600"})   # totals: light grey
+    # editable cells: plain white, dark ink. Read-only (totals, projections): grey wash, so the eye skips them
+    ro = list(TOTALS.values()) + proj_labels()
+    shown = (g.style
+             .set_properties(**{"color": "#16213e", "background-color": "#ffffff"})
+             .set_properties(subset=list(TOTALS.values()), **{"background-color": "#eef1f6", "color": "#0a2463",
+                                                              "font-weight": "700"})
+             .set_properties(subset=proj_labels(), **{"background-color": "#f2f0fa", "color": "#4b3f8f",
+                                                     "font-weight": "600"}))
     after = st.data_editor(shown, column_config=cfg, disabled=not editable, width="content",
-                           row_height=26, height=len(g) * 26 + 52, key=key)
+                           row_height=30, height=len(g) * 30 + 40, key=key)
     try:
         for cols in GRIDS.values():
             grid_changes(g, after, cols, changes)
@@ -477,6 +813,7 @@ def render_visuals():
         cur_s = month_series(s, sel_y, sel_m)
         dim = month_dim(sel_y, sel_m)
         pr = project(cur_s, sel_y, sel_m)
+        rng = None
         fig = go.Figure()
 
         # bands from the previous LOOKBACK years (interpolated across Cecafe's blank days)
@@ -524,6 +861,7 @@ def render_visuals():
             c = cur_s.reindex(range(1, dim + 1))
             fig.add_trace(go.Scatter(x=c.index, y=c.values, name=str(sel_y), mode="lines+markers",
                                      line=dict(color=NAVY, width=3), marker=dict(size=7), connectgaps=connect))
+            rng = likely_range(comm, pr[0], pr[2]) if pr and 10 < pr[0] < dim else None
             if pr and 10 < pr[0] < dim:          # no projection line in the first 10 days
                 fig.add_trace(go.Scatter(x=[pr[0], dim], y=[pr[1], pr[2]], name="Projection", mode="lines+markers",
                                          line=dict(color=NAVY, width=1.5, dash="dot"),
@@ -539,6 +877,29 @@ def render_visuals():
         chart_layout(fig, height=440)
         visible = [tr for tr in fig.data if tr.yaxis != "y2" and tr.visible != "legendonly" and len(tr.y)]
         ymax = max([float(pd.Series(tr.y).max()) for tr in visible] or [1.0])
+        # end-value labels on the right: each line's last value, nudged apart so they never overlap
+        ends = []
+        for tr in fig.data:
+            if tr.yaxis == "y2" or tr.mode is None or "lines" not in tr.mode:
+                continue
+            ys = pd.Series(tr.y, index=tr.x).dropna()
+            if ys.empty or (tr.name == str(sel_y) and pr and 10 < pr[0] < dim):    # projection carries the current year
+                continue
+            colr = tr.line.color or NAVY
+            bold = tr.name in (str(sel_y), "Projection")
+            v = float(ys.iloc[-1])
+            if tr.name.startswith("Projection range"):
+                continue
+            txt = f"{'<b>' if bold else ''}{v / 1e6:.2f}M{'</b>' if bold else ''}"
+            if tr.name == "Projection" and rng:
+                txt += f" <span style='font-size:9px'>({rng[0] / 1e6:.2f}–{rng[1] / 1e6:.2f}M)</span>"
+            ends.append([v, txt, colr])
+        ends.sort(key=lambda e: e[0])
+        for k in range(1, len(ends)):
+            ends[k][0] = max(ends[k][0], ends[k - 1][0] + ymax * (0.09 if "<br>" in ends[k - 1][1] else 0.055))
+        for y_, txt, colr in ends:
+            fig.add_annotation(x=dim, y=y_, xref="x", yref="y", text=txt, showarrow=False, xanchor="left", xshift=10,
+                               font=dict(size=10.5, color=colr))
         # two stacked panels on one day axis: cumulative on top, Adj daily as a mini bar chart below
         fig.update_layout(
             yaxis=dict(domain=[0.3, 1], range=[0, ymax * 1.05]),
@@ -553,6 +914,9 @@ def render_visuals():
         for tr in fig.data:
             tr.legendrank = (order.index(tr.name) if tr.name in order else 50) + (100 if tr.yaxis == "y2" else 0)
         bottom_legend(fig)
+        if not cur_s.empty:
+            now_callout(fig, int(cur_s.index[-1]), float(cur_s.iloc[-1]))
+        fig.update_layout(margin=dict(r=125))                       # room for the end-value labels
         return fig
 
     def last_months_fig(comm):
@@ -564,24 +928,24 @@ def render_visuals():
             m -= 1
             if m == 0:
                 y, m = y - 1, 12
-        for k, ((yy, mm), col) in enumerate(zip(seq[:5], [NAVY, RED, TEAL, AMBER, GREY])):
-            h = month_series(s, yy, mm)
+        for k, ((yy, mo), col) in enumerate(zip(seq[:5], [NAVY, RED, TEAL, AMBER, GREY])):
+            h = month_series(s, yy, mo)
             if h.empty:
                 continue
-            h = h.reindex(range(1, month_dim(yy, mm) + 1))
-            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mm - 1]}'{str(yy)[2:]}",
+            h = h.reindex(range(1, month_dim(yy, mo) + 1))
+            fig.add_trace(go.Scatter(x=h.index, y=h.values, name=f"{MONTHS[mo - 1]}'{str(yy)[2:]}",
                                      mode="lines+markers", line=dict(color=col, width=3 if k == 0 else 1.8),
                                      marker=dict(size=7 if k == 0 else 4), connectgaps=connect))
 
         # Adj daily panel: previous month (light yellow) next to the selected month, plus 5-month avg/day
-        lab = lambda yy, mm: f"{MONTHS[mm - 1]}'{str(yy)[2:]}"
-        for (yy, mm), colr in ((seq[1], "rgba(224,170,40,0.45)"), (seq[0], "#8f9bb8")):
-            mser = month_series(s, yy, mm)
+        lab = lambda yy, mo: f"{MONTHS[mo - 1]}'{str(yy)[2:]}"
+        for (yy, mo), colr in ((seq[1], "rgba(224,170,40,0.45)"), (seq[0], "#8f9bb8")):
+            mser = month_series(s, yy, mo)
             if not mser.empty:
                 ad = adjusted_daily(mser)
-                fig.add_trace(go.Bar(x=ad.index, y=ad.values, name=f"Adj daily {lab(yy, mm)}", marker_color=colr,
+                fig.add_trace(go.Bar(x=ad.index, y=ad.values, name=f"Adj daily {lab(yy, mo)}", marker_color=colr,
                                      hovertemplate="%{y:,.0f}", yaxis="y2"))
-        per_day = [month_final(s, yy, mm) / month_dim(yy, mm) for yy, mm in seq[1:] if month_final(s, yy, mm)]
+        per_day = [month_final(s, yy, mo) / month_dim(yy, mo) for yy, mo in seq[1:] if month_final(s, yy, mo)]
         if per_day:
             avg_d = sum(per_day) / len(per_day)
             fig.add_trace(go.Scatter(x=[0.5, 31.5], y=[avg_d, avg_d], mode="lines", yaxis="y2",
@@ -597,7 +961,31 @@ def render_visuals():
             xaxis=dict(anchor="y2"),
             barmode="group", bargap=0.25, bargroupgap=0.05,
         )
-        return bottom_legend(fig)
+        # right edge: each earlier month's final value; the selected month gets its projection (+80% range) there,
+        # and a lighter label where it stands now
+        ends = []
+        for k, ((yy, mo), col) in enumerate(zip(seq[:5], [NAVY, RED, TEAL, AMBER, GREY])):
+            h = month_series(s, yy, mo).dropna()
+            if h.empty:
+                continue
+            if k == 0:
+                pr = project(h, yy, mo)
+                now_callout(fig, int(h.index[-1]), float(h.iloc[-1]))
+                if pr and 10 < pr[0] < month_dim(yy, mo):
+                    r = likely_range(comm, pr[0], pr[2])
+                    ends.append([pr[2], f"<b>{mm(pr[2])}</b>" + (f" <span style='font-size:9px'>({mm(r[0])}–{mm(r[1])})</span>"
+                                                                  if r else ""), NAVY])
+            else:
+                ends.append([float(h.iloc[-1]), mm(h.iloc[-1]), col])
+        ends.sort(key=lambda e: e[0])
+        for k in range(1, len(ends)):
+            ends[k][0] = max(ends[k][0], ends[k - 1][0] + ymax * 0.06)
+        for y_, txt, colr in ends:
+            fig.add_annotation(x=31.5, y=y_, xref="x", yref="y", text=txt, showarrow=False, xanchor="left", xshift=6,
+                               font=dict(size=10, color=colr))
+        bottom_legend(fig)
+        fig.update_layout(margin=dict(r=125))
+        return fig
 
     def _chart_cols():
         """One column per commodity, ~10% narrower than half the page: thin outer margins and a wider
@@ -731,13 +1119,10 @@ def by_day_table(data: dict, cols, sel, band, as_pct, title, desc):
 
 
 def render_dispatched():
-    oc = st.columns([2.6, 1.7, 1.6, 4], vertical_alignment="center")
-    with oc[0]:
-        kind = st.radio("Type", ["Total", *ALL], horizontal=True, label_visibility="collapsed", key="pct_kind")
-    with oc[1]:
-        span = st.radio("Months", ["Last 2", "All months"], horizontal=True, label_visibility="collapsed",
-                        key="pct_span")
-    with oc[2]:
+    with st.sidebar.container(key="side_disp"):
+        st.markdown("<div class='ms-lbl'>Chart options</div>", unsafe_allow_html=True)
+        kind = st.selectbox("Type", ["Total", *ALL], key="pct_kind")
+        span = st.selectbox("Months", ["Last 2", "All months"], key="pct_span")
         connect = st.toggle("Connect gaps", value=True, key="pct_connect")
     pct = pct_by_month(kind)
     num = disp_numbers(kind)
@@ -815,8 +1200,9 @@ def render_accuracy():
     """How far to trust the linear month-end projection, in plain words: every past complete month is replayed
     day by day (only numbers known that day) and the projection compared with how the month really ended.
     'within' = the band 8 of 10 past months fell inside (80th pct of |miss|); 'lean' = median signed miss."""
-    scope = st.radio("Months", ["All months", f"{MONTHS[sel_m - 1]} only"], horizontal=True,
-                     label_visibility="collapsed", key="acc_scope")
+    with st.sidebar.container(key="side_acc"):
+        st.markdown("<div class='ms-lbl'>Chart options</div>", unsafe_allow_html=True)
+        scope = st.selectbox("Months tested", ["All months", f"{MONTHS[sel_m - 1]} only"], key="acc_scope")
     st.markdown("<style>"
                 ".acc-card{background:#ffffff;border:1px solid rgba(43,74,138,.10);border-radius:16px;padding:14px 18px;margin:4px 0 10px;"
                 "text-align:center;box-shadow:0 1px 2px rgba(10,36,99,.04),0 8px 24px rgba(30,58,110,.06)}"
@@ -1078,14 +1464,15 @@ def render_history():
 
 
 def render_daily_entry():
-    le, ri = st.columns([1, 1.05], gap="medium")
-    with le, st.container(border=True):
+    with st.container(border=True, key="ent_card_grid"):
         render_entry_grid()
-    with ri, st.container(border=True):
-        render_table()
-    if entry_enabled():
-        with st.expander("Save history", expanded=False):
-            render_history()
+
+
+def sidebar_month():
+    """The month picker, in the sidebar under the nav; drawn only on pages that use it."""
+    with st.sidebar, st.container(key="monthsel"):
+        st.markdown("<div class='ms-lbl'>Month</div>", unsafe_allow_html=True)
+        st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1093,21 +1480,20 @@ def render_daily_entry():
 # ---------------------------------------------------------------------------------------------
 # the section is picked in the sidebar (see above); each one gets its own `if main == ...` block below.
 if main == "Daily Cecafe":
-    st.markdown(f"<div class='page-title'>Cecafe daily registrations <span class='pill'>{MON}</span></div>",
-                unsafe_allow_html=True)
     # one row: pill tabs on the left (a radio, so only the open page is computed), month dropdown on the right
     nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
     with nav_l, st.container(key="nav"):
-        page = st.radio("Page", ["Registrations", "Dispatched", "Advanced Study"], horizontal=True,
+        page = st.radio("Page", ["Daily Cecafe Projection", "Registrations", "Dispatched", "Advanced Study"], horizontal=True,
                         label_visibility="collapsed", key="page")
-    with nav_r, st.container(key="monthsel"):
-        st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
-                     format_func=lambda s: f"Month  |  {s}")
-    if page == "Registrations":
-        oc = st.columns([1.2, 1.8, 5], vertical_alignment="center")
-        with oc[0]:
-            yrs = st.radio("Years", ["Last 2", "All"], horizontal=True, label_visibility="collapsed", key="years")
-        with oc[1]:
+    sidebar_month()
+    if page == "Daily Cecafe Projection":
+        render_band_charts()
+        with st.container(border=True, key="ent_card_proj"):
+            render_table()
+    elif page == "Registrations":
+        with st.sidebar.container(key="side_reg"):
+            st.markdown("<div class='ms-lbl'>Chart options</div>", unsafe_allow_html=True)
+            yrs = st.selectbox("Years", ["Last 2", "All"], key="years")
             connect = st.toggle("Connect gaps", value=True, help="Draw lines across days Cecafe did not publish.")
         min_year = max(sel_y - 2, first_year) if yrs == "Last 2" else first_year          # charts: Last 2 / All
         render_visuals()
@@ -1124,138 +1510,23 @@ elif main == "Monthly Cecafe":
 elif main == "Exports To Destination":
     import destinations
     destinations.render()
-elif main == "Daily & Monthly Entry":
-    # one place for both entry grids: Daily (per-day MTD) and Monthly (crop-year exports)
-    nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
-    with nav_l, st.container(key="entry_nav"):
-        sub = st.radio("Entry", ["Daily Cecafe", "Monthly Cecafe"], horizontal=True,
-                       label_visibility="collapsed", key="entry_sub")
-    if sub == "Daily Cecafe":
-        with nav_r, st.container(key="monthsel"):
-            st.selectbox("Month", MONTH_CHOICES, key="month_sel", label_visibility="collapsed",
-                         format_func=lambda s: f"Month  |  {s}")
-        st.markdown(f"<div class='page-title'>Daily Cecafe entry <span class='pill'>{MON}</span></div>",
-                    unsafe_allow_html=True)
-        render_daily_entry()
-    else:
-        import monthly
-        monthly.render_entry()
+elif main == "Cecafe Entry":
+    # one page: daily grid on top, monthly grid under it, one save history at the bottom
+    import monthly
+    sidebar_month()
+    render_daily_entry()
+    monthly.render_entry()
+    if entry_enabled():
+        with st.expander("Save history", expanded=False):
+            h1, h2 = st.columns(2, gap="large")
+            with h1:
+                st.markdown("<div class='card-title'>Daily</div>", unsafe_allow_html=True)
+                render_history()
+            with h2:
+                st.markdown("<div class='card-title'>Monthly</div>", unsafe_allow_html=True)
+                monthly.history()
 
-# ── ICE glacier theme (same family as Coffee SnD / Commodity Calendar), drawn last so it wins ──
-st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-[data-testid="stSidebar"] { background: linear-gradient(160deg, rgba(246,248,253,.92) 0%, rgba(233,238,248,.88) 55%, rgba(240,236,246,.9) 100%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(160%); backdrop-filter: blur(24px) saturate(160%);
-  border-right: 1px solid rgba(255,255,255,.75) !important; box-shadow: inset -1px 0 0 rgba(10,36,99,.06), 6px 0 28px rgba(10,36,99,.06); }
-div[role="radiogroup"], .stTabs [data-baseweb="tab-list"] { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(236,242,251,.93) 60%, rgba(229,237,249,.9)) !important;
-  border: 1px solid rgba(43,74,138,.14) !important; box-shadow: 0 4px 16px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95) !important; }
-div[role="radiogroup"] label:has(input:checked), .stTabs [aria-selected="true"] { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important;
-  box-shadow: 0 2px 8px rgba(30,58,110,.28), inset 0 1px 0 rgba(255,255,255,.18) !important; }
-div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; }
-[data-testid="stMain"] [data-testid="stPlotlyChart"] { background: #ffffff; border: 1px solid rgba(43,74,138,.12); border-radius: 16px; padding: 6px 8px;
-  box-shadow: 0 6px 22px rgba(30,58,110,.07), inset 0 1px 0 rgba(255,255,255,.95); }
-.dtab, .tbl-wrap { border: 1px solid rgba(43,74,138,.14) !important; border-radius: 12px; background: #ffffff !important; box-shadow: none !important; }
-.tbl-wrap { overflow-x: auto; margin-bottom: 12px !important; }          /* stays inside its card */
-[class*="st-key-mc_card_"], [class*="st-key-dx_card_"] { padding-bottom: 12px !important; border-color: rgba(43,74,138,.12) !important;
-  box-shadow: 0 6px 22px rgba(30,58,110,.07) !important; }
-.dtab { border-collapse: separate !important; border-spacing: 0; }
-.dtab .sub th { background: linear-gradient(180deg, #2b4a8a, #1e3a6e) !important; color: #ffffff !important; }
-.dtab .g2 { background: #e6edf8 !important; } .dtab .g3 { background: #e8f2f6 !important; }
-.dtab .g1, .dtab .g2, .dtab .g3 { border-color: rgba(43,74,138,.10) !important; }
-.dtab td { border-bottom-color: rgba(43,74,138,.07) !important; }
-.dtab tr:nth-child(even) td:not(.dt):not(.b):not(.avgc):not(.early) { background: #f8fafd; }
-.dtab td.dt { background: #f1f5fb !important; } .dtab td.b { background: #eef3fa !important; }
-.tbl th { background: linear-gradient(180deg, #f3f7fd, #e7eef9) !important; color: #1e3a6e !important; }
-.tbl td { border-bottom-color: rgba(43,74,138,.07) !important; } .tbl td.lbl { background: #f5f8fc !important; border-right-color: rgba(43,74,138,.10) !important; }
-.tbl tr:nth-child(even) td:not(.lbl) { background: #f9fbfe; }
-.grid-head { background: linear-gradient(160deg, rgba(250,252,255,.97), rgba(232,239,250,.92)) !important; border: 1px solid rgba(43,74,138,.12);
-  border-bottom: 0; color: #1e3a6e !important; border-radius: 10px 10px 0 0 !important; }
-.card-desc, .tbl th, .dtab th, .grid-head, [data-testid="stCaptionContainer"], [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-div[role="radiogroup"] label p, .stTabs [data-baseweb="tab"] p { font-family: Plus Jakarta Sans, sans-serif !important; letter-spacing: .01em; }
-/* ── Ice theme completion (matches COT Comprehensive / Futures OI / TDM Comprehensive) ── */
-[data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] > style:only-child) { display: none !important; }
-[data-testid="stHeader"] { background: transparent !important; pointer-events: none; }
-[data-testid="stHeader"] button, [data-testid="stHeader"] a, [data-testid="stToolbar"] { pointer-events: auto; }
-html, body, [class*="css"], [data-testid="stAppViewContainer"], .stMarkdown, button, input, textarea {
-  font-family: Plus Jakarta Sans, sans-serif !important; -webkit-font-smoothing: antialiased; }
-.page-title, .card-title, .chart-head, .mc-sec, .dx-sec, .mc-hero-t, .dx-hero-t, [data-testid="stWidgetLabel"] p {
-  font-family: Plus Jakarta Sans, sans-serif !important; }
-/* dropdowns: glass pill, lift on hover, wine focus ring + caret; frosted menus */
-[data-baseweb="select"] { background: transparent !important; box-shadow: none !important; }
-[data-baseweb="select"] > div { background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(238,242,250,.62)) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(170%); backdrop-filter: blur(14px) saturate(170%);
-  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 999px !important; min-height: 34px;
-  box-shadow: 0 1px 2px rgba(10,36,99,.06), 0 6px 18px rgba(10,36,99,.08), inset 0 1px 0 rgba(255,255,255,.95); transition: box-shadow .18s, transform .18s; }
-[data-baseweb="select"] > div:hover { box-shadow: 0 0 0 3px rgba(10,36,99,.07), 0 8px 22px rgba(10,36,99,.14), inset 0 1px 0 rgba(255,255,255,.95); transform: translateY(-1px); }
-[data-baseweb="select"] > div:focus-within { box-shadow: 0 0 0 3px rgba(123,30,58,.16), 0 8px 22px rgba(10,36,99,.14) !important; }
-[data-baseweb="select"] svg { fill: #7b1e3a !important; }
-.st-key-monthsel [data-baseweb="select"] > div { border: 1px solid rgba(43,74,138,.22) !important; min-height: 40px; }
-[data-baseweb="popover"] [data-baseweb="menu"], [data-baseweb="popover"] ul {
-  background: rgba(255,255,255,.82) !important; -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
-  border: 1px solid rgba(255,255,255,.9) !important; border-radius: 14px !important; box-shadow: 0 14px 40px rgba(10,36,99,.18) !important; }
-[data-baseweb="popover"] li:hover { background: rgba(43,74,138,.07) !important; }
-/* vertical option lists inside popovers: a plain menu, not a pill track */
-[data-testid="stPopoverBody"] div[role="radiogroup"] { background: none !important; border: none !important; box-shadow: none !important;
-  border-radius: 0 !important; padding: 0 !important; display: flex !important; flex-direction: column; gap: 2px; width: 100%; }
-[data-testid="stPopoverBody"] div[role="radiogroup"] label { width: 100%; border-radius: 8px !important; padding: 5px 10px !important; }
-[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) { background: rgba(43,74,138,.09) !important; box-shadow: none !important; }
-[data-testid="stPopoverBody"] div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #0a2463 !important; font-weight: 700; }
-/* pill rows lift on hover; charts/cards/buttons/expanders */
-div[role="radiogroup"] label { transition: background .15s, transform .15s; }
-div[role="radiogroup"] label:not(:has(input:checked)):hover { transform: translateY(-1px); }
-[data-testid="stMain"] [data-testid="stPlotlyChart"] { overflow: hidden; transition: box-shadow .2s; }
-[data-testid="stMain"] [data-testid="stPlotlyChart"] .main-svg { border-radius: 14px; }
-[data-testid="stMain"] [data-testid="stPlotlyChart"]:hover { box-shadow: 0 1px 2px rgba(10,36,99,.05), 0 10px 26px rgba(30,58,110,.10), inset 0 1px 0 #ffffff; }
-[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) { border-radius: 18px !important;
-  border-color: rgba(43,74,138,.10) !important; box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(30,58,110,.06) !important; }
-.st-key-mc_filters, .st-key-dx_filters { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 18px !important;
-  box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 10px 30px rgba(30,58,110,.08), inset 0 1px 0 #ffffff !important; }
-.stButton > button, .stDownloadButton > button { border-radius: 999px !important; transition: box-shadow .18s, transform .18s; }
-.stButton > button:hover, .stDownloadButton > button:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(10,36,99,.12) !important; }
-div[data-testid="stExpander"] { border: 1px solid rgba(43,74,138,.10) !important; border-radius: 14px !important; box-shadow: 0 1px 3px rgba(10,36,99,.06); background: #ffffff; }
-/* headings: section heads minimal + centred on a royal-grey wash bar; chart/card titles navy, compact */
-.mc-rule, .dx-rule { border-top: none !important; margin: 18px 0 0 !important; }
-.mc-sec, .dx-sec { display: block; text-align: center; padding: 7px 14px; border-radius: 10px; margin: 6px 0 8px !important;
-  background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.12) 22%, rgba(92,104,136,.12) 78%, rgba(92,104,136,0) 100%);
-  font-size: 12.5px !important; font-weight: 700 !important; letter-spacing: .12em !important; text-transform: uppercase; color: #3b4663 !important; }
-.page-title { font-size: 1.15rem !important; letter-spacing: -.01em; }
-.card-title, .chart-head { font-size: 14px !important; font-weight: 700 !important; color: #0a2463 !important; letter-spacing: -.005em; }
-.card-desc { color: #7a86a8 !important; font-size: 12px !important; }
-/* one header style for every chart and table title (chart-head, card-title, grid-head): centred, small caps-lock
-   with wide tracking on a compact royal-grey wash bar; the note under a title is centred too */
-.chart-head, .card-title, .grid-head { display: block !important; text-align: center; text-transform: uppercase; font-size: 12px !important;
-  font-weight: 700 !important; letter-spacing: .14em !important; color: #1e3a6e !important; margin: 4px 0 4px !important; padding: 4px 12px !important;
-  border: none !important; border-radius: 8px !important; box-shadow: none !important;
-  background: linear-gradient(90deg, rgba(92,104,136,0) 0%, rgba(92,104,136,.11) 20%, rgba(92,104,136,.11) 80%, rgba(92,104,136,0) 100%) !important; }
-.card-title .pill { letter-spacing: .04em; text-transform: none; }
-.chart-head + .card-desc, .card-title + .card-desc, .tbl-head .card-desc { text-align: center; margin-top: 0 !important; }
-.pill { background: rgba(43,74,138,.08) !important; border: 1px solid rgba(43,74,138,.14); color: #1e3a6e !important; }
-/* icy tables: pale gradient sub-header instead of solid navy; tidy group bands */
-.dtab .sub th { background: linear-gradient(180deg, #f7f9fd, #e8eef9) !important; color: #1e3a6e !important; font-weight: 700 !important;
-  font-size: .92em; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid rgba(43,74,138,.18) !important; padding-top: 5px; padding-bottom: 5px; }
-.dtab td.dt { color: #1e3a6e; font-weight: 600; }
-.dtab tbody tr:hover td, .tbl tbody tr:hover td { background-color: rgba(43,74,138,.06) !important; }
-.tbl-wrap, .dtab { box-shadow: 0 1px 2px rgba(10,36,99,.04), 0 8px 24px rgba(10,36,99,.06) !important; }
-.tbl th { font-weight: 700 !important; letter-spacing: .06em; text-transform: uppercase; font-size: .9em; border-bottom: 1px solid rgba(43,74,138,.18) !important; }
-/* ── Sidebar nav (same as Daily Miner): clean vertical menu, soft navy pick, amber first item ── */
-.sb-title { font-family: Plus Jakarta Sans, sans-serif; font-size: 1.9rem; font-weight: 600; color: #0a2463; }
-.sb-tag { font-family: Plus Jakarta Sans, sans-serif; font-size: 11.5px; color: #8a94a8; letter-spacing: .04em; margin: -4px 0 22px 2px; }
-.st-key-sb_nav div[role="radiogroup"] { background: none !important; border: 0 !important; box-shadow: none !important; padding: 0 !important;
-  display: flex !important; flex-direction: column; gap: 4px; width: 100%; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-.st-key-sb_nav div[role="radiogroup"] label { border-radius: 12px !important; padding: 10px 16px !important; width: 100%; transition: background .15s, transform .15s; }
-.st-key-sb_nav div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p {
-  font-family: Plus Jakarta Sans, sans-serif !important; font-size: 14.5px !important; font-weight: 600 !important; color: #4a5578 !important; }
-.st-key-sb_nav div[role="radiogroup"] label:not(:has(input:checked)):hover { background: rgba(43,74,138,.07) !important; transform: translateX(2px); }
-.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) { background: linear-gradient(135deg, #2b4a8a, #1e3a6e) !important;
-  box-shadow: 0 6px 16px rgba(30,58,110,.25), inset 0 1px 0 rgba(255,255,255,.18) !important; }
-.st-key-sb_nav div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
-.st-key-sb_nav div[role="radiogroup"] label:first-child { margin-bottom: 8px; position: relative; }
-.st-key-sb_nav div[role="radiogroup"] label:first-child::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -7px; height: 1px; background: rgba(43,74,138,.10); }
-.st-key-sb_nav div[role="radiogroup"] label:first-child div[data-testid="stMarkdownContainer"] p { color: #d9701a !important; }
-.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) { background: linear-gradient(135deg, #f0923a, #d9701a) !important;
-  box-shadow: 0 6px 16px rgba(217,112,26,.30), inset 0 1px 0 rgba(255,255,255,.25) !important; }
-.st-key-sb_nav div[role="radiogroup"] label:first-child:has(input:checked) div[data-testid="stMarkdownContainer"] p { color: #ffffff !important; }
-</style>""", unsafe_allow_html=True)
+
 
 for _k in KEEP:                                                # remember the values for the next run
     if _k in st.session_state:

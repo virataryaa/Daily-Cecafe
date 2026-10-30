@@ -302,22 +302,19 @@ def render():
                           key="dx_sub")
     detailed = sub == "Detailed Overview"
 
-    with st.container(border=True, key="dx_filters"):
-        if detailed:
-            b0, b3, b4, _ = st.columns([2.2, 1.75, 1.6, 2.25], vertical_alignment="bottom")
-        else:
-            b0, b2, b3, b4, b5 = st.columns([2.2, 1.45, 1.75, 1.6, 0.8], vertical_alignment="bottom")
-        comm = b0.radio("Type", list(TYPES), horizontal=True, key="dx_comm")
+    with st.sidebar.container(key="side_dx"):                      # filters live in the sidebar, as dropdowns
+        st.markdown("<div class='ms-lbl'>View</div>", unsafe_allow_html=True)
+        comm = st.selectbox("Type", list(TYPES), key="dx_comm")
         dests = _ranked_dests(df, comm) + [EUROPE_LABEL, TOTAL]
         if ss.get("dx_dest") not in dests:
             ss["dx_dest"] = "Belgium" if "Belgium" in dests else TOTAL
         if not detailed:
-            span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="dx_span")
-        unit = b3.radio("Unit", list(UNITS), horizontal=True, key="dx_unit")
-        basis = b4.radio("Crop year", list(CY_PRESETS), horizontal=True, key="dx_cy")
-        if not detailed:
-            dest = st.radio("Destination", dests, horizontal=True, key="dx_dest",
-                            format_func=lambda d: "All (Total)" if d == TOTAL else d)
+            dest = st.selectbox("Destination", dests, key="dx_dest",
+                                format_func=lambda d: "All (Total)" if d == TOTAL else d)
+            span = st.selectbox("Years", ["Last 5", "Last 10", "All"], key="dx_span")
+        unit = st.selectbox("Unit", list(UNITS), key="dx_unit")
+        basis = st.selectbox("Crop year", list(CY_PRESETS), key="dx_cy")
+        b5 = st.container()
     for k in ("dx_dest", "dx_span"):
         if k in ss:
             ss[f"_keep_{k}"] = ss[k]
@@ -342,7 +339,7 @@ def render():
         st.info("No data for this selection.")
         return
     with b5:
-        st.markdown("<div class='dx-lbl'>Projection</div>", unsafe_allow_html=True)
+        st.markdown("<div class='mc-side-lbl'>Projection</div>", unsafe_allow_html=True)
         with st.container(key=f"dxproj_{'off' if ss.get('dx_pj_method', 'Off') == 'Off' else 'on'}"):
             proj = _projection(ctx)
 

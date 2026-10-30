@@ -284,20 +284,52 @@ def recrop(raw: pd.DataFrame, start: int) -> pd.DataFrame:
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
+def sidebar_settings(gbe: float):
+    """Monthly Cecafe only: chart settings (Unit, Crop year) and the Soluble GBE multiplier, quietly in the sidebar."""
+    editable = gh.enabled()
+    with st.sidebar, st.container(key="mc_side"):
+        st.markdown("<div class='ms-lbl'>Chart settings</div>", unsafe_allow_html=True)
+        st.selectbox("Unit", list(UNITS), key="mc_ch_unit")
+        basis = st.selectbox("Crop year", list(CY_PRESETS) + ["Custom"], key="mc_cy_basis")
+        if basis == "Custom":
+            seed("mc_cy_start", "Jul")
+            st.selectbox("Start month", CAL, key="mc_cy_start")
+        st.markdown("<div class='ms-lbl' style='margin-top:14px'>Soluble GBE multiplier</div>", unsafe_allow_html=True)
+        gc = st.columns([1.1, 1], vertical_alignment="bottom")
+        newg = gc[0].number_input("GBE multiplier", min_value=0.1, max_value=10.0, value=float(gbe), step=0.05,
+                                  format="%.2f", label_visibility="collapsed", key="mc_gbe", disabled=not editable,
+                                  help="Soluble x this (green bean equivalent) before it is added to Arabica or Robusta.")
+        if gc[1].button("Save", disabled=(not editable) or abs(newg - gbe) < 1e-9, width="stretch", key="mc_gbe_save"):
+            try:
+                with st.spinner("Saving..."):
+                    _save_gbe(gbe, round(float(newg), 4))
+            except (gh.GitHubError, Exception) as ex:
+                st.error(f"GitHub save failed: {ex}")
+            else:
+                st.session_state["mc_flash"] = f"Soluble GBE multiplier set to {newg:g}."
+                st.rerun()
+
+
 def render():
     st.markdown(CSS, unsafe_allow_html=True)
     raw = load()
     gbe = float(load_settings()["soluble_gbe"])
+    if st.session_state.get("mc_flash"):
+        st.toast(st.session_state.pop("mc_flash"))
     title = st.empty()                                             # navy header bar, filled by _views
     _views(raw, gbe, title)
+    sidebar_settings(gbe)                                          # under the View controls in the sidebar
 
 
 def render_entry():
-    """Monthly entry grid, for the sidebar's Daily & Monthly Entry section."""
+    """Monthly entry grid, under the daily grid on the Cecafe Entry page."""
     st.markdown(CSS, unsafe_allow_html=True)
-    st.markdown("<div class='page-title'>Monthly Cecafe entry</div>", unsafe_allow_html=True)
-    _controls()
     render_input(load(), float(load_settings()["soluble_gbe"]))
+
+
+def history():
+    """Save history of the monthly file + settings (merged into the Cecafe Entry page's history)."""
+    _history()
 
 
 def _context(raw, gbe, comm, unit, span):
@@ -331,7 +363,7 @@ def _controls():
     with st.container(border=True, key="mc_filters"):
         st.markdown("<div class='chart-head'>Chart settings</div>"
                     "<div class='card-desc'>Used by Charts &amp; Table</div>", unsafe_allow_html=True)
-        b1, b4, b5, _ = st.columns([1.5, 2.0, 1.0, 4], vertical_alignment="bottom")
+        b1, b4, b5 = st.columns([1.2, 2.2, 1.0], vertical_alignment="bottom")
         b1.radio("Unit", list(UNITS), horizontal=True, key="mc_ch_unit")
         basis = b4.radio("Crop year", list(CY_PRESETS) + ["Custom"], horizontal=True, key="mc_cy_basis")
         if basis == "Custom":
@@ -356,14 +388,13 @@ def _views(raw, gbe, title):
     """Charts & Table: one set of controls (Type, Unit, Years, Crop year, Projection) drives the charts and the table.
     The crop-year start re-labels the data and rotates MONTHS for this view only (restored for the Entry page)."""
     global MONTHS, START
-    pre = "ch"
-    with st.container(border=True, key="mc_filters"):
-        unit, start, cy_label = _settings()                         # set on Daily & Monthly Entry
-        b0, b2, b3, b6 = st.columns([4.7, 1.25, 0.8, 1.7], vertical_alignment="bottom")
-        comm = b0.radio("Type", COMMS, horizontal=True, key=f"mc_{pre}_comm")
+    unit, start, cy_label = _settings()                             # sidebar: Unit / Crop year
+    with st.sidebar, st.container(key="mc_side_view"):              # sidebar: Type / Years / Projection
+        st.markdown("<div class='ms-lbl'>View</div>", unsafe_allow_html=True)
+        comm = st.selectbox("Type", COMMS, key="mc_ch_comm")
         seed("mc_ch_span", "Last 10")
-        span = b2.radio("Years", ["Last 5", "Last 10", "All"], horizontal=True, key="mc_ch_span")
-        b6.markdown(f"<div class='card-desc' style='text-align:right;margin:0 0 10px'>{unit} · {cy_label}</div>", unsafe_allow_html=True)
+        span = st.selectbox("Years", ["Last 5", "Last 10", "All"], key="mc_ch_span")
+        b3 = st.container()
     saved = MONTHS, START
     START, MONTHS = start, [CAL[(start - 1 + i) % 12] for i in range(12)]
     try:
@@ -378,7 +409,7 @@ def _views_body(raw, gbe, title, comm, unit, span, b3):
         proj = {}
         if ctx is not None:
             with b3:
-                st.markdown("<div class='mc-lbl'>Projection</div>", unsafe_allow_html=True)
+                st.markdown("<div class='mc-side-lbl'>Projection</div>", unsafe_allow_html=True)
                 with st.container(key=f"mcproj_{'off' if st.session_state.get('mc_pj_method', 'Off') == 'Off' else 'on'}"):
                     proj = _projection(ctx["piv"], ctx["latest_cy"], ctx["prev_cy"], ctx["common"], ctx["ref"],
                                        unit, ctx["fmt"])
@@ -397,8 +428,9 @@ def _views_body(raw, gbe, title, comm, unit, span, b3):
 
 
 def _cv(v, unit, fmt):
-    """Compact value for on-chart labels: 10.7M in Bags, else the unit's own format."""
-    return f"{v / 1e6:.1f}M" if unit == "Bags" else format(v, fmt)
+    """On-chart labels always in million bags, whatever the Unit setting: 34.8M, 8.25M."""
+    b = v / UNITS[unit][0] / 1e6
+    return f"{b:.1f}M" if abs(b) >= 10 else f"{b:.2f}M"
 
 
 def _last_dot(fig, x, y, text, pos):
@@ -548,6 +580,8 @@ def _pace(ctx, proj):
 
     center, lo, hi, method = np.nan, np.nan, np.nan, ""
     if common < 12 and len(full) >= 2:
+        if ctx["comm"] == "Robusta":                               # Robusta's pattern shifted a lot: last 3 years only
+            full = full[-3:]
         tf = piv.loc[full].sum(axis=1)
         shares = piv.loc[full, list(range(1, common + 1))].sum(axis=1) / tf
         est = now / shares[shares > 0]                             # what this YTD implies under each year's pattern
@@ -568,7 +602,7 @@ def _pace(ctx, proj):
     colors = ["#c3cbe0"] * len(full_yy)
     fig = go.Figure(go.Bar(x=full_yy, y=tot[full_yy].values, marker=dict(color=colors, line=dict(width=0)),
                            text=[c(tot[y]) for y in full_yy],
-                           textposition="outside", textfont=dict(size=9, color=AXIS), cliponaxis=False,
+                           textposition="outside", textfont=dict(size=11, color="#1e3a6e"), cliponaxis=False,
                            hovertemplate=f"%{{x}}: %{{y:{fmt}}} {unit}<extra></extra>", name="Full year"))
     if pd.notna(center):
         fig.add_trace(go.Bar(x=[latest_cy], y=[now], marker=dict(color=NAVY, line=dict(width=0)), name="YTD",
@@ -577,10 +611,12 @@ def _pace(ctx, proj):
                              marker=dict(color=rgba(NAVY, 0.22), line=dict(color=NAVY, width=1)),
                              error_y=dict(type="data", symmetric=False, array=[max(hi - center, 0)],
                                           arrayminus=[max(center - lo, 0)], color=NAVY, thickness=1.5, width=6),
-                             text=[f"<b>{c(center)}</b>"], textposition="outside", textfont=dict(size=10, color=NAVY),
                              cliponaxis=False,
                              hovertemplate=(f"Projected full year: {format(center, fmt)} {unit}<br>"
                                             f"Range: {format(lo, fmt)} – {format(hi, fmt)}<extra></extra>")))
+    if pd.notna(center):                                           # projected total above the whisker, never squeezed
+        fig.add_annotation(x=latest_cy, y=max(hi, center), text=f"<b>{c(center)}</b>", showarrow=False,
+                           yanchor="bottom", yshift=4, font=dict(size=11, color=NAVY))
     rows = len(yy) + 5                                             # roughly the table's height, so the cards end level
     show(style(fig, height=max(260, 40 + rows * 18), legend=None, fmt=fmt, short=unit == "Bags", barmode="stack",
                bargap=0.35, yaxis=dict(rangemode="tozero")), key="mc_pace")
@@ -840,29 +876,33 @@ def render_input(raw: pd.DataFrame, gbe: float):
     editable = gh.enabled()
     vals = _cal_values(raw)
     last_data = max(y for (_, y, _) in vals) if vals else 2026
-    show_n = st.radio("Years shown", ["Recent", f"All ({FIRST_YEAR}-{LAST_YEAR})"], horizontal=True,
-                      label_visibility="collapsed", key="mc_edit_years")
     hi_y = min(LAST_YEAR, max(last_data, pd.Timestamp.today().year))
-    yr_list = (list(range(FIRST_YEAR, LAST_YEAR + 1)) if show_n.startswith("All")
-               else list(range(max(FIRST_YEAR, hi_y - 2), hi_y + 1)))                              # Recent = last 3 years
 
-    with st.container(border=True):
-        st.markdown("<div class='card-title'>Monthly exports, bags</div>"
-                    "<div class='card-desc'>Calendar years, Jan to Dec, oldest first, ready up to 2030. "
-                    + ("Click a cell, type, then Save. Blank removes the value."
-                       if editable else "Read-only: add github_token in Secrets to edit.") + "</div>",
+    with st.container(border=True, key="ent_card_mgrid"):
+        st.markdown("<div class='card-title'>Monthly exports <span class='pill'>bags</span></div>", unsafe_allow_html=True)
+        with st.sidebar.container(key="side_ment"):
+            st.markdown("<div class='ms-lbl'>Monthly grid</div>", unsafe_allow_html=True)
+            show_n = st.selectbox("Years shown", ["Recent", f"All ({FIRST_YEAR}-{LAST_YEAR})"], key="mc_edit_years")
+        yr_list = (list(range(FIRST_YEAR, LAST_YEAR + 1)) if show_n.startswith("All")
+                   else list(range(max(FIRST_YEAR, hi_y - 2), hi_y + 1)))                          # Recent = last 3 years
+        st.markdown(("" if editable else "<div class='card-desc'>Read-only: add github_token in Secrets to edit.</div>"),
                     unsafe_allow_html=True)
-        cfg = {CAL[m - 1]: st.column_config.TextColumn(CAL[m - 1], alignment="right", width=74) for m in range(1, 13)}
-        cfg["_index"] = st.column_config.TextColumn("Year", width=64)
+        cfg = {CAL[m - 1]: st.column_config.TextColumn(CAL[m - 1], alignment="center", width=98) for m in range(1, 13)}
+        cfg["_index"] = st.column_config.TextColumn("Year", width=72)
         before, after, keys = {}, {}, []
         for comm in BASE:
             g = _edit_grid(vals, comm, yr_list)
             key = f"mc_edit_{comm}_{show_n[:3]}"
             keys.append(key)
-            st.markdown(f"<div class='grid-head'>{comm}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='eg-band' style='margin-top:18px'><div class='eg-grp' style='width:{72 + 12 * 98}px'>"
+                        f"{comm}</div></div>", unsafe_allow_html=True)
+            st.markdown("<div class='eg-head eg-34'><div style='width:72px;text-align:left;padding-left:10px'>Year</div>"
+                        + "".join(f"<div style='width:98px'>{m}</div>" for m in CAL) + "</div>",
+                        unsafe_allow_html=True)              # separate element: same overlay offset as the daily grid
             before[comm] = g
-            after[comm] = st.data_editor(g, column_config=cfg, disabled=not editable, width="content",
-                                         row_height=26, height=len(g) * 26 + 48, key=key)
+            after[comm] = st.data_editor(g.style.set_properties(**{"color": "#16213e", "background-color": "#ffffff"}),
+                                         column_config=cfg, disabled=not editable, width="content",
+                                         row_height=34, height=(len(g) + 1) * 34 + 12, key=key)
         if editable:
             try:
                 changes = [c for comm in BASE for c in _changes(comm, before[comm], after[comm])]
@@ -896,29 +936,6 @@ def render_input(raw: pd.DataFrame, gbe: float):
                 if cc[2].button("Cancel", width="stretch", key="mc_cancel"):
                     st.session_state.pop("mc_pending", None)
                     st.rerun()
-
-    # Soluble GBE multiplier, further down
-    with st.container(border=True):
-        st.markdown("<div class='card-title'>Soluble GBE multiplier</div>"
-                    "<div class='card-desc'>Soluble is multiplied by this (green bean equivalent) before it is added to "
-                    "Arabica or Robusta.</div>", unsafe_allow_html=True)
-        gc = st.columns([1.2, 1, 5], vertical_alignment="center")
-        newg = gc[0].number_input("GBE multiplier", min_value=0.1, max_value=10.0, value=float(gbe), step=0.05,
-                                  format="%.2f", label_visibility="collapsed", key="mc_gbe", disabled=not editable)
-        if gc[1].button("Save multiplier", disabled=(not editable) or abs(newg - gbe) < 1e-9, width="stretch",
-                        key="mc_gbe_save"):
-            try:
-                with st.spinner("Saving..."):
-                    _save_gbe(gbe, round(float(newg), 4))
-            except (gh.GitHubError, Exception) as ex:
-                st.error(f"GitHub save failed: {ex}")
-            else:
-                st.session_state["mc_flash"] = f"Soluble GBE multiplier set to {newg:g}."
-                st.rerun()
-
-    if editable:
-        with st.expander("Save history", expanded=False):
-            _history()
 
 
 def _do_save(changes, keys):

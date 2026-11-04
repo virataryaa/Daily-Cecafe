@@ -1637,7 +1637,7 @@ if main == "Daily Cecafe":
     # one row: pill tabs on the left (a radio, so only the open page is computed), month dropdown on the right
     nav_l, nav_r = st.columns([3.6, 1.5], vertical_alignment="center")
     with nav_l, st.container(key="nav"):
-        page = st.radio("Page", ["Daily Cecafe Projection", "Registrations", "Daily Flow", "Dispatched", "Advanced Study"],
+        page = st.radio("Page", ["Registrations", "Dispatched", "Daily Cecafe Projection", "Daily Flow", "Advanced Study"],
                         horizontal=True,
                         label_visibility="collapsed", key="page")
     sidebar_month()

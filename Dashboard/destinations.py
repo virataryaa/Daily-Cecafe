@@ -87,6 +87,7 @@ div[role="radiogroup"] label:has(input:checked) div[data-testid="stMarkdownConta
 .st-key-dx_hero { margin-bottom: 8px; }
 .st-key-dx_hero [data-testid="stVerticalBlock"]:has(> .st-key-dx_sub) { align-items: flex-end; }
 .st-key-dx_hero div[role="radiogroup"] label { padding: 4px 14px !important; }
+.st-key-dx_hero .st-key-dx_sub, .st-key-dx_hero .st-key-dx_sub > div { display: flex; justify-content: center; width: 100%; }
 .dx-hero-t { color: #0a2463; font-size: 17px; font-weight: 600; letter-spacing: .22em; line-height: 1.3;
     text-transform: uppercase; text-align: center; padding: 2px 0 0; }
 .dx-hero-t::after { content: ""; display: block; width: 56px; height: 1px; margin: 9px auto 0;
@@ -292,9 +293,13 @@ def render():
         if k not in ss and f"_keep_{k}" in ss:
             ss[k] = ss[f"_keep_{k}"]
     title = st.empty()                                             # centred title, same as Monthly Cecafe
+    with st.container(key="dx_hero"):                              # page tabs on top
+        _, mid, _ = st.columns([1, 1, 1])
+        with mid:
+            detailed = st.radio("Page", ["Overview", "Detailed Overview"], horizontal=True, key="dx_sub",
+                                label_visibility="collapsed") == "Detailed Overview"
     with st.sidebar.container(key="side_dx"):                      # filters live in the sidebar, as dropdowns
         st.markdown("<div class='ms-lbl'>View</div>", unsafe_allow_html=True)
-        detailed = st.selectbox("Page", ["Overview", "Detailed Overview"], key="dx_sub") == "Detailed Overview"
         comm = st.selectbox("Type", list(TYPES), key="dx_comm")
         dests = _ranked_dests(df, comm) + [EUROPE_LABEL, TOTAL]
         if ss.get("dx_dest") not in dests:

@@ -227,6 +227,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Belgium,110.0
 2026,8,Arabica,Belgium,307.0
 2026,9,Arabica,Belgium,209.0
+2026,10,Arabica,Belgium,689.0
 2008,1,Arabica,China,0.0
 2008,2,Arabica,China,2.0
 2008,3,Arabica,China,3.0
@@ -450,6 +451,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,China,9.9
 2026,8,Arabica,China,41.2
 2026,9,Arabica,China,102.0
+2026,10,Arabica,China,162.0
 2007,10,Arabica,Germany,511.0
 2007,11,Arabica,Germany,450.0
 2007,12,Arabica,Germany,481.0
@@ -678,6 +680,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Germany,199.0
 2026,8,Arabica,Germany,312.0
 2026,9,Arabica,Germany,350.0
+2026,10,Arabica,Germany,429.0
 2007,10,Arabica,Italy,203.0
 2007,11,Arabica,Italy,214.0
 2007,12,Arabica,Italy,259.0
@@ -906,6 +909,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Italy,167.0
 2026,8,Arabica,Italy,322.0
 2026,9,Arabica,Italy,255.0
+2026,10,Arabica,Italy,406.0
 2007,10,Arabica,Japan,161.0
 2007,11,Arabica,Japan,139.0
 2007,12,Arabica,Japan,112.0
@@ -1134,6 +1138,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Japan,204.0
 2026,8,Arabica,Japan,175.0
 2026,9,Arabica,Japan,117.0
+2026,10,Arabica,Japan,243.0
 2007,10,Arabica,Netherlands,74.0
 2007,11,Arabica,Netherlands,58.0
 2007,12,Arabica,Netherlands,40.0
@@ -1362,6 +1367,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Netherlands,46.0
 2026,8,Arabica,Netherlands,98.0
 2026,9,Arabica,Netherlands,101.0
+2026,10,Arabica,Netherlands,124.0
 2007,10,Arabica,Total,2265.0
 2007,11,Arabica,Total,2059.0
 2007,12,Arabica,Total,1993.0
@@ -1590,6 +1596,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,Total,1828.0
 2026,8,Arabica,Total,2959.0
 2026,9,Arabica,Total,2766.0
+2026,10,Arabica,Total,4120.0
 2007,10,Arabica,UK,16.0
 2007,11,Arabica,UK,20.0
 2007,12,Arabica,UK,32.0
@@ -1818,6 +1825,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,UK,20.0
 2026,8,Arabica,UK,54.0
 2026,9,Arabica,UK,59.0
+2026,10,Arabica,UK,78.0
 2007,10,Arabica,USA,397.0
 2007,11,Arabica,USA,336.0
 2007,12,Arabica,USA,332.0
@@ -2046,6 +2054,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Arabica,USA,283.0
 2026,8,Arabica,USA,472.0
 2026,9,Arabica,USA,544.0
+2026,10,Arabica,USA,601.0
 2007,10,Robusta,Belgium,23.0
 2007,11,Robusta,Belgium,0.0
 2007,12,Robusta,Belgium,0.0
@@ -2274,6 +2283,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Belgium,281.5
 2026,8,Robusta,Belgium,231.0
 2026,9,Robusta,Belgium,135.0
+2026,10,Robusta,Belgium,123.0
 2007,10,Robusta,Colombia,0.0
 2007,11,Robusta,Colombia,0.0
 2007,12,Robusta,Colombia,0.0
@@ -2502,6 +2512,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Colombia,71.8
 2026,8,Robusta,Colombia,49.0
 2026,9,Robusta,Colombia,58.0
+2026,10,Robusta,Colombia,142.0
 2007,10,Robusta,Germany,3.0
 2007,11,Robusta,Germany,0.0
 2007,12,Robusta,Germany,0.0
@@ -2730,6 +2741,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Germany,47.7
 2026,8,Robusta,Germany,82.0
 2026,9,Robusta,Germany,124.0
+2026,10,Robusta,Germany,63.0
 2007,10,Robusta,Italy,10.0
 2007,11,Robusta,Italy,10.0
 2007,12,Robusta,Italy,10.0
@@ -2958,6 +2970,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Italy,31.4
 2026,8,Robusta,Italy,42.0
 2026,9,Robusta,Italy,74.0
+2026,10,Robusta,Italy,46.0
 2007,10,Robusta,Mexico,60.0
 2007,11,Robusta,Mexico,0.0
 2007,12,Robusta,Mexico,0.0
@@ -3186,6 +3199,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Mexico,87.4
 2026,8,Robusta,Mexico,135.0
 2026,9,Robusta,Mexico,132.0
+2026,10,Robusta,Mexico,187.0
 2007,10,Robusta,Netherlands,1.0
 2007,11,Robusta,Netherlands,0.0
 2007,12,Robusta,Netherlands,1.0
@@ -3414,6 +3428,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Netherlands,0.32
 2026,8,Robusta,Netherlands,1.3
 2026,9,Robusta,Netherlands,2.1
+2026,10,Robusta,Netherlands,0.0
 2007,10,Robusta,Spain,0.0
 2007,11,Robusta,Spain,0.0
 2007,12,Robusta,Spain,0.0
@@ -3642,6 +3657,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Spain,63.0
 2026,8,Robusta,Spain,52.5
 2026,9,Robusta,Spain,63.0
+2026,10,Robusta,Spain,71.0
 2007,10,Robusta,Total,238.0
 2007,11,Robusta,Total,122.0
 2007,12,Robusta,Total,51.0
@@ -3870,6 +3886,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Total,849.0
 2026,8,Robusta,Total,963.0
 2026,9,Robusta,Total,814.0
+2026,10,Robusta,Total,897.0
 2007,10,Robusta,UK,0.0
 2007,11,Robusta,UK,0.0
 2007,12,Robusta,UK,0.0
@@ -4098,6 +4115,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,UK,1.8
 2026,8,Robusta,UK,75.0
 2026,9,Robusta,UK,6.0
+2026,10,Robusta,UK,2.0
 2007,10,Robusta,USA,100.0
 2007,11,Robusta,USA,50.0
 2007,12,Robusta,USA,11.0
@@ -4326,6 +4344,7 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,USA,63.5
 2026,8,Robusta,USA,45.0
 2026,9,Robusta,USA,38.0
+2026,10,Robusta,USA,97.0
 2019,11,Robusta,Vietnam,16.0
 2019,12,Robusta,Vietnam,4.0
 2020,6,Robusta,Vietnam,42.0
@@ -4366,3 +4385,4 @@ Year,Month,Type,Destination,Bags (K)
 2026,7,Robusta,Vietnam,31.7
 2026,8,Robusta,Vietnam,25.3
 2026,9,Robusta,Vietnam,4.0
+2026,10,Robusta,Vietnam,5.3
